@@ -90,6 +90,7 @@ httptools==0.7.1
     # via uvicorn
 httpx==0.28.1
     # via
+    #   -r requirements.in
     #   fastapi-mcp
     #   fastmcp
     #   langgraph-sdk
@@ -241,7 +242,7 @@ py-key-value-shared==0.2.8
     # via py-key-value-aio
 pycparser==2.23
     # via cffi
-pydantic[email]==2.12.3
+pydantic[email]==2.12.2
     # via
     #   -r requirements.in
     #   fastapi
@@ -271,7 +272,7 @@ pyperclip==1.11.0
     # via fastmcp
 pytest==8.4.2
     # via -r requirements.in
-python-dotenv==1.1.1
+python-dotenv==1.1.0
     # via
     #   -r requirements.in
     #   fastmcp
