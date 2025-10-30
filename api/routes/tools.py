@@ -1,1 +1,4 @@
-# /mcp/tools/ 에 정의된 함수 로드하여 엔드포인트 - tool 매핑
+from fastapi import APIRouter
+
+
+router = APIRouter(prefix="/tools", tags=["mcp-tools"])
