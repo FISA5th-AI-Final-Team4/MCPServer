@@ -96,6 +96,7 @@ httpx==0.28.1
     #   langgraph-sdk
     #   langsmith
     #   mcp
+    #   ollama
 httpx-sse==0.4.3
     # via
     #   langchain-community
@@ -152,10 +153,13 @@ langchain-core==1.0.1
     #   langchain
     #   langchain-classic
     #   langchain-community
+    #   langchain-ollama
     #   langchain-text-splitters
     #   langgraph
     #   langgraph-checkpoint
     #   langgraph-prebuilt
+langchain-ollama==1.0.0
+    # via -r requirements.in
 langchain-text-splitters==1.0.0
     # via langchain-classic
 langgraph==1.0.1
@@ -200,6 +204,8 @@ mypy-extensions==1.1.0
     # via typing-inspect
 numpy==2.3.4
     # via langchain-community
+ollama==0.6.0
+    # via langchain-ollama
 openapi-core==0.19.5
     # via fastmcp
 openapi-pydantic==0.5.1
@@ -254,6 +260,7 @@ pydantic[email]==2.12.2
     #   langgraph
     #   langsmith
     #   mcp
+    #   ollama
     #   openapi-pydantic
     #   pydantic-settings
 pydantic-core==2.41.4
