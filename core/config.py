@@ -5,6 +5,9 @@ class Settings(BaseSettings):
     # 시스템 환경변수 적용
     WEATHER_API_BASE_URL: str
     WEATHER_API_KEY: str
+    OLLAMA_BASE_URL: str
+    OLLAMA_MODEL_NAME: str
+
 
     # .env 환경변수 파일 로드
     model_config = SettingsConfigDict(
