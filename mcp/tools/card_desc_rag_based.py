@@ -157,3 +157,43 @@ def execute_multi_query_search(query: str, k: int = 20) -> List[Document]:
     print("="*80 + "\n")
     
     return retrieved_docs
+
+
+# ============================================================================
+# 결과 후처리 및 최종 컨텍스트 선정
+# ============================================================================
+
+def postprocess_and_select_documents(
+    query: str,
+    retrieved_docs: List[Document],
+    top_n: int = 5
+) -> List[Document]:
+    """
+    검색된 문서를 후처리하여 최종 컨텍스트 선정
+    
+    현재는 단순히 상위 N개 선택
+    향후 개선 가능:
+    - CohereRerank로 재정렬
+    - LLMChainExtractor로 핵심 구절 추출
+    - 관련성 스코어링
+    """
+    
+    print("\n" + "="*80)
+    print("결과 후처리 및 최종 컨텍스트 선정")
+    print("="*80)
+    print(f"입력 문서 수: {len(retrieved_docs)}")
+    print(f"목표 문서 수: {top_n}")
+    
+    # 상위 N개 문서 선택
+    final_docs = retrieved_docs[:top_n]
+    
+    print(f"\n최종 선정: {len(final_docs)}개 문서")
+    
+    # 선정된 문서 미리보기
+    for i, doc in enumerate(final_docs, 1):
+        preview = doc.page_content[:80] + "..." if len(doc.page_content) > 80 else doc.page_content
+        print(f"  문서 {i}: {preview}")
+    
+    print("="*80 + "\n")
+    
+    return final_docs
