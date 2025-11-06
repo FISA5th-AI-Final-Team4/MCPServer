@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Dict, Any
 from pathlib import Path
 
 from langchain_ollama import ChatOllama
@@ -298,3 +298,82 @@ def generate_final_answer(query: str, context_docs: List[Document]) -> str:
     print("="*80 + "\n")
     
     return final_answer
+
+
+# ============================================================================
+# 통합 파이프라인
+# ============================================================================
+
+def card_recommendation_rag_pipeline(
+    query: str,
+    retrieve_k: int = 20,
+    final_k: int = 5
+) -> Dict[str, Any]:
+    """
+    카드 추천 RAG 파이프라인 전체 실행
+    
+    LLM 서버에서 쿼리 라우팅을 통해 호출되며,
+    전처리된 쿼리를 입력받아 최종 답변을 생성합니다.
+    
+    파이프라인 흐름:
+    1. 쿼리 변환 (1개 → 4개)
+    2. 벡터 DB 검색 (임베딩 모델 사용)
+    3. 결과 후처리 및 컨텍스트 선정
+    4. Ollama를 통한 최종 답변 생성
+    
+    Args:
+        query (str): 전처리된 사용자 쿼리
+        retrieve_k (int): 초기 검색 문서 수
+        final_k (int): 최종 선정 문서 수
+        
+    Returns:
+        Dict[str, Any]: 다음 정보를 포함하는 딕셔너리
+            - query: 입력 쿼리
+            - retrieved_count: 검색된 문서 수
+            - final_count: 최종 선정 문서 수
+            - answer: 생성된 최종 답변
+            - context_docs: 사용된 컨텍스트 문서 리스트
+    """
+    
+    print("\n" + "="*80)
+    print("카드 추천 RAG 파이프라인 시작")
+    print("="*80)
+    print(f"입력 쿼리: {query}")
+    print(f"초기 검색 문서 수: {retrieve_k}")
+    print(f"최종 선정 문서 수: {final_k}")
+    print("="*80)
+    
+    try:
+        # 쿼리 변환 및 멀티 쿼리 검색
+        retrieved_docs = execute_multi_query_search(query, k=retrieve_k)
+        
+        # 결과 후처리 및 최종 컨텍스트 선정
+        final_docs = postprocess_and_select_documents(query, retrieved_docs, top_n=final_k)
+        
+        # 최종 답변 생성
+        final_answer = generate_final_answer(query, final_docs)
+        
+        # 결과 반환
+        result = {
+            "query": query,
+            "retrieved_count": len(retrieved_docs),
+            "final_count": len(final_docs),
+            "answer": final_answer,
+            "context_docs": [
+                {
+                    "content": doc.page_content,
+                    "metadata": doc.metadata
+                }
+                for doc in final_docs
+            ]
+        }
+        
+        print("\n" + "="*80)
+        print("카드 추천 RAG 파이프라인 완료")
+        print("="*80 + "\n")
+        
+        return result
+        
+    except Exception as e:
+        print(f"\n[오류] 파이프라인 실행 중 오류 발생: {str(e)}")
+        raise
