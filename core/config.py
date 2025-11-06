@@ -7,7 +7,6 @@ class Settings(BaseSettings):
     WEATHER_API_KEY: str
     OLLAMA_BASE_URL: str
     OLLAMA_MODEL_NAME: str
-    LANGSMITH_API_KEY: str = ""
 
 
     # .env 환경변수 파일 로드
