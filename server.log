@@ -1,0 +1,44 @@
+nohup: ignoring input
+INFO:     Started server process [30050]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8011 (Press CTRL+C to quit)
+INFO:     127.0.0.1:54156 - "GET / HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:54156 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:36940 - "GET /tools/health HTTP/1.1" 200 OK
+/home/bsh/Woorifisa5_final/mcp-server/mcp_module/RAG/card_desc_rag_based.py:85: LangChainDeprecationWarning: The class `HuggingFaceEmbeddings` was deprecated in LangChain 0.2.2 and will be removed in 1.0. An updated version of the class exists in the `langchain-huggingface package and should be used instead. To use it run `pip install -U `langchain-huggingface` and import as `from `langchain_huggingface import HuggingFaceEmbeddings``.
+  embeddings = HuggingFaceEmbeddings(
+
+[API] 카드 추천 요청: 편의점 많이 쓰는데 할인 카드 추천해줘
+
+================================================================================
+카드 추천 RAG 파이프라인 시작
+================================================================================
+입력 쿼리: 편의점 많이 쓰는데 할인 카드 추천해줘
+초기 검색 문서 수: 5
+최종 선정 문서 수: 3
+================================================================================
+
+================================================================================
+쿼리 변환 및 검색 실행
+================================================================================
+입력 쿼리: 편의점 많이 쓰는데 할인 카드 추천해줘
+검색 문서 수(K): 5
+
+================================================================================
+벡터 DB 로드
+================================================================================
+임베딩 모델: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+벡터 DB 로드 완료: /home/bsh/Woorifisa5_final/mcp-server/data/VectorDB
+================================================================================
+
+
+쿼리 변환 중...
+
+[오류] 파이프라인 실행 중 오류 발생: model 'llama3:8b' not found (status code: 404)
+[API 오류] model 'llama3:8b' not found (status code: 404)
+INFO:     127.0.0.1:47970 - "POST /tools/card-recommendation HTTP/1.1" 500 Internal Server Error
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [30050]

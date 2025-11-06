@@ -142,7 +142,7 @@ def execute_multi_query_search(query: str, k: int = 20) -> List[Document]:
     
     # 쿼리 변환용 경량 LLM
     query_transform_llm = ChatOllama(
-        model="llama3:8b",
+        model=settings.OLLAMA_MODEL_NAME,
         base_url=settings.OLLAMA_BASE_URL,
         temperature=0.3
     )
@@ -285,7 +285,7 @@ def generate_final_answer(query: str, context_docs: List[Document]) -> str:
     
     # 고성능 생성 LLM
     generation_llm = ChatOllama(
-        model="llama3.1:70b",
+        model=settings.OLLAMA_MODEL_NAME,
         base_url=settings.OLLAMA_BASE_URL,
         temperature=0.7,
         top_p=0.9
