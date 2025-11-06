@@ -27,10 +27,9 @@ EMBEDDING_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12
 벡터 DB 검색의 커버리지를 높이는 기능을 제공.
 """
 
-def create_multi_query_retriever(base_retriever, llm):
+def generate_alternative_queries(query: str, llm) -> List[str]:
     """
-    원본 쿼리를 3개의 다른 관점 쿼리로 변환하여 총 4개 쿼리로 검색
-    검색 결과를 합치고 중복 제거하여 반환
+    원본 쿼리를 3개의 다른 관점 쿼리로 변환
     """
     
     query_transform_prompt = PromptTemplate(
@@ -55,14 +54,17 @@ def create_multi_query_retriever(base_retriever, llm):
 """
     )
     
-    multi_query_retriever = MultiQueryRetriever.from_llm(
-        retriever=base_retriever,
-        llm=llm,
-        prompt=query_transform_prompt,
-        include_original=True
-    )
+    # LLM을 사용하여 대체 쿼리 생성
+    chain = query_transform_prompt | llm | StrOutputParser()
+    result = chain.invoke({"question": query})
     
-    return multi_query_retriever
+    # 결과를 라인별로 분리하여 리스트로 변환
+    alternative_queries = [q.strip() for q in result.strip().split('\n') if q.strip()]
+    
+    # 원본 쿼리 포함하여 반환
+    all_queries = [query] + alternative_queries
+    
+    return all_queries
 
 
 # ============================================================================
@@ -145,18 +147,33 @@ def execute_multi_query_search(query: str, k: int = 20) -> List[Document]:
         temperature=0.3
     )
     
-    # Multi-Query Retriever 생성
+    # 쿼리 변환 (1개 → 4개)
     print("\n쿼리 변환 중...")
-    multi_query_retriever = create_multi_query_retriever(base_retriever, query_transform_llm)
+    all_queries = generate_alternative_queries(query, query_transform_llm)
+    print(f"생성된 쿼리 수: {len(all_queries)}")
+    for i, q in enumerate(all_queries, 1):
+        print(f"  {i}. {q}")
     
-    # 검색 실행 (내부적으로 쿼리 변환 → 임베딩 → 검색 자동 수행)
-    print("멀티 쿼리 검색 실행 중...")
-    retrieved_docs = multi_query_retriever.invoke(query)
+    # 각 쿼리로 검색 실행
+    print("\n멀티 쿼리 검색 실행 중...")
+    all_retrieved_docs = []
+    seen_contents = set()
     
-    print(f"검색 완료: {len(retrieved_docs)}개 문서 (중복 제거 후)")
+    for i, q in enumerate(all_queries, 1):
+        print(f"  검색 {i}/{len(all_queries)}: {q[:50]}...")
+        docs = base_retriever.invoke(q)
+        
+        # 중복 제거
+        for doc in docs:
+            content_hash = hash(doc.page_content)
+            if content_hash not in seen_contents:
+                seen_contents.add(content_hash)
+                all_retrieved_docs.append(doc)
+    
+    print(f"검색 완료: {len(all_retrieved_docs)}개 문서 (중복 제거 후)")
     print("="*80 + "\n")
     
-    return retrieved_docs
+    return all_retrieved_docs
 
 
 # ============================================================================
