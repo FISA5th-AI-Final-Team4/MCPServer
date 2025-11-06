@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
-from mcp.tools.card_desc_rag_based import card_recommendation_rag_pipeline
+from mcp_module.RAG.card_desc_rag_based import card_recommendation_rag_pipeline
 from schemas.card_recommendation import (
     CardRecommendationRequest,
     CardRecommendationResponse,
