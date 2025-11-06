@@ -8,7 +8,6 @@ from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain.retrievers.multi_query import MultiQueryRetriever
 
 from core.config import settings
 
