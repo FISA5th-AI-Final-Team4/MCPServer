@@ -3,8 +3,9 @@ from typing import List
 from pathlib import Path
 
 from langchain_ollama import ChatOllama
-from langchain_core.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
 from langchain_core.documents import Document
+from langchain_core.output_parsers import StrOutputParser
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.retrievers.multi_query import MultiQueryRetriever
@@ -197,3 +198,103 @@ def postprocess_and_select_documents(
     print("="*80 + "\n")
     
     return final_docs
+
+
+# ============================================================================
+# Ollama 답변 생성
+# ============================================================================
+
+def create_card_recommendation_prompt() -> ChatPromptTemplate:
+    """
+    카드 추천 전문가 프롬프트 생성
+    
+    비즈니스 요구사항:
+    1. 추천 이유
+    2. 상황별 추천
+    3. 상품 설명 + 상황별 혜택
+    """
+    
+    system_message = """당신은 전문 카드 추천 상담사입니다.
+
+제공된 카드 정보를 바탕으로 다음 3가지를 반드시 포함하여 답변하세요:
+
+1. **추천 이유**: 
+   - 고객의 소비 패턴/상황에 이 카드가 적합한 이유
+   - 다른 카드 대비 차별화된 장점
+
+2. **상황별 카드 추천**:
+   - 고객의 주요 사용 상황별로 가장 적합한 카드 추천
+   - 예: "편의점을 자주 이용하신다면 A카드", "쇼핑몰 결제가 많으시다면 B카드"
+   - 각 상황에 맞는 구체적인 카드명과 혜택 제시
+
+3. **상품 설명 + 상황별 혜택**:
+   - 추천한 카드의 주요 특징 및 스펙
+   - 카테고리별 할인율/적립률 (편의점, 카페, 대중교통 등)
+   - 연회비 및 혜택 조건
+   - 실제 사용 시나리오별 예상 혜택
+
+제약:
+- 컨텍스트에 없는 정보는 추측하지 마세요
+- 구체적인 수치와 카드명을 포함하세요
+- 전문적이면서도 친근한 어조로 작성하세요
+
+컨텍스트:
+{context}
+"""
+    
+    human_message = """고객 질문: {question}
+
+위 질문에 대해 3가지 항목(추천 이유, 상황별 카드 추천, 상품 설명+혜택)을 포함하여 답변해주세요."""
+    
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_message),
+        ("human", human_message)
+    ])
+    
+    return prompt
+
+
+def generate_final_answer(query: str, context_docs: List[Document]) -> str:
+    """
+    최종 컨텍스트와 쿼리를 Ollama에 전달하여 답변 생성
+    
+    고성능 LLM(llama3.1:70b 또는 llama3:70b-instruct) 사용
+    """
+    
+    print("\n" + "="*80)
+    print("최종 답변 생성")
+    print("="*80)
+    print(f"쿼리: {query}")
+    print(f"컨텍스트 문서 수: {len(context_docs)}")
+    
+    # 고성능 생성 LLM
+    generation_llm = ChatOllama(
+        model="llama3.1:70b",
+        base_url=settings.OLLAMA_BASE_URL,
+        temperature=0.7,
+        top_p=0.9
+    )
+    
+    # 컨텍스트 문서를 하나의 문자열로 결합
+    context_text = "\n\n".join([
+        f"[문서 {i+1}]\n{doc.page_content}"
+        for i, doc in enumerate(context_docs)
+    ])
+    
+    # 프롬프트 생성
+    prompt = create_card_recommendation_prompt()
+    
+    # RAG 체인 구성 (LCEL)
+    rag_chain = prompt | generation_llm | StrOutputParser()
+    
+    # 답변 생성
+    print("\nOllama 답변 생성 중...")
+    final_answer = rag_chain.invoke({
+        "context": context_text,
+        "question": query
+    })
+    
+    print("답변 생성 완료")
+    print("="*80 + "\n")
+    
+    return final_answer
