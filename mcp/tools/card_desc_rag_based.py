@@ -1,17 +1,31 @@
-"""
-쿼리 변환 (Query Transformation) - Multi-Query Retrieval
+import os
+from typing import List
+from pathlib import Path
 
-하나의 사용자 쿼리를 여러 관점의 쿼리로 확장하여
-벡터 DB 검색의 커버리지를 높이는 기능을 제공합니다.
-"""
-
+from langchain_ollama import ChatOllama
 from langchain_core.prompts import PromptTemplate
+from langchain_core.documents import Document
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
 from langchain.retrievers.multi_query import MultiQueryRetriever
+
+from core.config import settings
+
+
+# 전역 설정
+VECTOR_DB_PATH = Path(__file__).parent.parent.parent / "data" / "VectorDB"
+EMBEDDING_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 
 # ============================================================================
 # 쿼리 변환 (Query Transformation) 
 # ============================================================================
+"""
+쿼리 변환 (Query Transformation) - Multi-Query Retrieval
+
+하나의 사용자 쿼리를 여러 관점의 쿼리로 확장하여
+벡터 DB 검색의 커버리지를 높이는 기능을 제공.
+"""
 
 def create_multi_query_retriever(base_retriever, llm) -> MultiQueryRetriever:
     """
@@ -49,3 +63,97 @@ def create_multi_query_retriever(base_retriever, llm) -> MultiQueryRetriever:
     )
     
     return multi_query_retriever
+
+
+# ============================================================================
+# 검색 실행 (Search Execution)
+# ============================================================================
+
+def load_vector_db() -> FAISS:
+    """
+    FAISS 벡터 DB 로드
+    문서 임베딩과 동일한 paraphrase-multilingual-MiniLM-L12-v2 모델 사용
+    """
+    
+    print("\n" + "="*80)
+    print("벡터 DB 로드")
+    print("="*80)
+    
+    # HuggingFace 임베딩 모델 로드
+    embeddings = HuggingFaceEmbeddings(
+        model_name=EMBEDDING_MODEL_NAME,  #sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+        model_kwargs={'device': 'cpu'},
+        encode_kwargs={'normalize_embeddings': True}
+    )
+    print(f"임베딩 모델: {EMBEDDING_MODEL_NAME}")
+    
+    # FAISS 인덱스 로드
+    faiss_index_path = str(VECTOR_DB_PATH)
+    if not os.path.exists(faiss_index_path):
+        raise FileNotFoundError(f"벡터 DB를 찾을 수 없습니다: {faiss_index_path}")
+    
+    vectorstore = FAISS.load_local(
+        faiss_index_path,
+        embeddings,
+        allow_dangerous_deserialization=True
+    )
+    
+    print(f"벡터 DB 로드 완료: {faiss_index_path}")
+    print("="*80 + "\n")
+    
+    return vectorstore
+
+
+def create_base_retriever(vectorstore: FAISS, k: int = 20):
+    """벡터 스토어로부터 기본 리트리버 생성 (Top-K 유사도 검색)"""
+    
+    retriever = vectorstore.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k": k}
+    )
+    return retriever
+
+
+def execute_multi_query_search(query: str, k: int = 20) -> List[Document]:
+    """
+    Multi-Query Retrieval 전체 실행
+    
+    흐름:
+    1. 벡터 DB 로드 (임베딩 모델 포함)
+    2. 기본 리트리버 생성
+    3. LLM으로 쿼리 변환 (1개 → 4개)
+    4. 각 쿼리를 임베딩 → 벡터 검색
+    5. 결과 합치기 + 중복 제거
+    """
+    
+    print("\n" + "="*80)
+    print("쿼리 변환 및 검색 실행")
+    print("="*80)
+    print(f"입력 쿼리: {query}")
+    print(f"검색 문서 수(K): {k}")
+    
+    # 벡터 DB 로드 (임베딩 모델 포함)
+    vectorstore = load_vector_db()
+    
+    # 기본 리트리버 생성
+    base_retriever = create_base_retriever(vectorstore, k=k)
+    
+    # 쿼리 변환용 경량 LLM
+    query_transform_llm = ChatOllama(
+        model="llama3:8b",
+        base_url=settings.OLLAMA_BASE_URL,
+        temperature=0.3
+    )
+    
+    # Multi-Query Retriever 생성
+    print("\n쿼리 변환 중...")
+    multi_query_retriever = create_multi_query_retriever(base_retriever, query_transform_llm)
+    
+    # 검색 실행 (내부적으로 쿼리 변환 → 임베딩 → 검색 자동 수행)
+    print("멀티 쿼리 검색 실행 중...")
+    retrieved_docs = multi_query_retriever.invoke(query)
+    
+    print(f"검색 완료: {len(retrieved_docs)}개 문서 (중복 제거 후)")
+    print("="*80 + "\n")
+    
+    return retrieved_docs
