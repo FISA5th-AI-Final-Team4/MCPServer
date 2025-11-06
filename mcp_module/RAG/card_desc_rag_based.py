@@ -27,7 +27,7 @@ EMBEDDING_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12
 벡터 DB 검색의 커버리지를 높이는 기능을 제공.
 """
 
-def create_multi_query_retriever(base_retriever, llm) -> MultiQueryRetriever:
+def create_multi_query_retriever(base_retriever, llm):
     """
     원본 쿼리를 3개의 다른 관점 쿼리로 변환하여 총 4개 쿼리로 검색
     검색 결과를 합치고 중복 제거하여 반환
