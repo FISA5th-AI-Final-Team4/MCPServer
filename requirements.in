@@ -11,3 +11,5 @@ langchain-community==0.4.1
 langchain-ollama==1.0.0
 fastmcp==2.13.0.1
 httpx==0.28.1
+sentence-transformers==5.1.2
+faiss-cpu==1.12.0
