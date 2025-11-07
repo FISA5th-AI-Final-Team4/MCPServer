@@ -1,6 +1,5 @@
 import os
 from typing import List, Dict, Any
-from pathlib import Path
 
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
@@ -10,11 +9,6 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 
 from core.config import settings
-
-
-# 전역 설정
-VECTOR_DB_PATH = Path(__file__).parent.parent.parent / "data" / "VectorDB"
-EMBEDDING_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 
 # ============================================================================
@@ -83,14 +77,14 @@ def load_vector_db() -> FAISS:
     
     # HuggingFace 임베딩 모델 로드
     embeddings = HuggingFaceEmbeddings(
-        model_name=EMBEDDING_MODEL_NAME,  #sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+        model_name=settings.EMBEDDING_MODEL_NAME,
         model_kwargs={'device': 'cpu'},
         encode_kwargs={'normalize_embeddings': True}
     )
-    print(f"임베딩 모델: {EMBEDDING_MODEL_NAME}")
+    print(f"임베딩 모델: {settings.EMBEDDING_MODEL_NAME}")
     
     # FAISS 인덱스 로드
-    faiss_index_path = str(VECTOR_DB_PATH)
+    faiss_index_path = str(settings.VECTOR_DB_PATH)
     if not os.path.exists(faiss_index_path):
         raise FileNotFoundError(f"벡터 DB를 찾을 수 없습니다: {faiss_index_path}")
     
