@@ -19,7 +19,8 @@ router = APIRouter(prefix="/tools", tags=["mcp-tools"])
     "/card-recommendation",
     response_model=CardRecommendationResponse,
     summary="카드 추천 RAG 파이프라인",
-    description="사용자 질문을 받아 RAG 파이프라인을 실행하여 카드를 추천합니다."
+    description="사용자 질문을 받아 RAG 파이프라인을 실행하여 카드를 추천합니다.",
+    operation_id="get_card_recommendation"
 )
 async def card_recommendation(request: CardRecommendationRequest) -> CardRecommendationResponse:
     """
@@ -72,7 +73,11 @@ async def card_recommendation(request: CardRecommendationRequest) -> CardRecomme
         )
 
 
-@router.get("/health")
+@router.get(
+    "/health",
+    summary="Health check",
+    operation_id="health_check"
+)
 async def health_check():
     """헬스 체크"""
     return {
