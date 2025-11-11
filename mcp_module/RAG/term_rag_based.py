@@ -131,5 +131,6 @@ def search_term(term_query: str) -> Dict[str, Any]:
             "query": term_query,
             "term_info": None,
             "answer": f"검색 중 오류가 발생했습니다: {str(e)}",
-            "related_terms": []
+            "related_terms": [],
+            "similarity": None
         }

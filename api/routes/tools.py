@@ -177,7 +177,7 @@ async def term_query(request: TermRequest) -> TermResponse:
                 related_terms=term_data.get("related_terms", []),
                 examples=term_data.get("examples"),
                 category_name=term_data["category_name"],
-                similarity=float(term_data["similarity"])
+                similarity=float(term_data.get("sim", term_data.get("similarity", 0)))
             )
             
             related_terms = [

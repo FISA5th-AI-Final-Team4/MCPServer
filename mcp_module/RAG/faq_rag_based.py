@@ -87,6 +87,11 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
                     }
                 
                 faq_list = [dict(row) for row in results]
+                
+                # similarity 필드 추가 (match_count를 similarity로 복사)
+                for faq in faq_list:
+                    faq['similarity'] = float(faq['match_count'])
+                
                 best_match = faq_list[0]
                 
                 answer = f"[{best_match['category_name']}]\n\n"
@@ -114,5 +119,6 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
             "query": question,
             "results": [],
             "answer": f"검색 중 오류가 발생했습니다: {str(e)}",
-            "total_found": 0
+            "total_found": 0,
+            "best_similarity": None
         }
