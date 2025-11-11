@@ -31,6 +31,8 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
     """
     사용자 질문에 대한 FAQ 검색 및 답변 생성
     
+    키워드 배열 기반 검색 (pg_trgm은 한글 지원 제한)
+    
     Args:
         question: 사용자의 질문
         top_k: 반환할 최대 FAQ 개수
@@ -45,6 +47,9 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
         }
     """
     
+    # 질문에서 키워드 추출
+    question_words = [word for word in question.replace('?', '').replace(',', '').split() if len(word) > 1]
+    
     query = """
         SELECT 
             f.faq_id,
@@ -54,18 +59,22 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
             f.priority,
             f.views,
             c.category_name,
-            similarity(f.question, %s) AS similarity
+            (
+                SELECT COUNT(*)
+                FROM unnest(f.keywords) AS k
+                WHERE k = ANY(%s::text[])
+            ) AS match_count
         FROM faqs f
         JOIN faq_categories c ON f.category_id = c.category_id
-        WHERE similarity(f.question, %s) > 0.1
-        ORDER BY similarity DESC, f.priority DESC, f.views DESC
+        WHERE f.keywords && %s::text[]
+        ORDER BY match_count DESC, f.priority DESC, f.views DESC
         LIMIT %s;
     """
     
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute(query, (question, question, top_k))
+                cursor.execute(query, (question_words, question_words, top_k))
                 results = cursor.fetchall()
                 
                 if not results:
@@ -87,7 +96,7 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
                 if len(faq_list) > 1:
                     answer += "\n\n[관련 FAQ]\n"
                     for idx, faq in enumerate(faq_list[1:], 1):
-                        answer += f"{idx}. {faq['question']} (유사도: {faq['similarity']:.2f})\n"
+                        answer += f"{idx}. {faq['question']} (매칭 키워드: {faq['match_count']}개)\n"
                 
                 return {
                     "success": True,
@@ -95,7 +104,7 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
                     "results": faq_list,
                     "answer": answer,
                     "total_found": len(faq_list),
-                    "best_similarity": float(best_match['similarity'])
+                    "best_similarity": float(best_match['match_count'])
                 }
                 
     except Exception as e:

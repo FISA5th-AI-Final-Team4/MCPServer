@@ -31,6 +31,8 @@ def search_term(term_query: str) -> Dict[str, Any]:
     """
     금융 용어 검색 및 설명 생성
     
+    부분 문자열 매칭 사용 (LIKE 연산자)
+    
     Args:
         term_query: 검색할 용어
         
@@ -53,18 +55,23 @@ def search_term(term_query: str) -> Dict[str, Any]:
             t.related_terms,
             t.examples,
             c.category_name,
-            similarity(t.term, %s) AS similarity
+            CASE 
+                WHEN t.term = %s THEN 1.0
+                WHEN t.term LIKE %s THEN 0.8
+                ELSE 0.5
+            END AS sim
         FROM terms t
         JOIN term_categories c ON t.category_id = c.category_id
-        WHERE similarity(t.term, %s) > 0.2
-        ORDER BY similarity DESC
+        WHERE t.term LIKE %s OR t.term = %s
+        ORDER BY sim DESC
         LIMIT 1;
     """
     
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute(query, (term_query, term_query))
+                like_pattern = f"%{term_query}%"
+                cursor.execute(query, (term_query, like_pattern, like_pattern, term_query))
                 result = cursor.fetchone()
                 
                 if not result:
@@ -114,7 +121,7 @@ def search_term(term_query: str) -> Dict[str, Any]:
                     "term_info": term_info,
                     "answer": answer,
                     "related_terms": related_terms,
-                    "similarity": float(term_info['similarity'])
+                    "similarity": float(term_info['sim'])
                 }
                 
     except Exception as e:
