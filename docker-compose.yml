@@ -1,3 +1,7 @@
+# 실행 명령어: sudo docker compose --env-file .env up -d --build
+# 중지 명령어: sudo docker compose down
+# 로그 확인: sudo docker compose logs -f postgres
+
 version: '3.8'
 
 services:
@@ -9,7 +13,7 @@ services:
     environment:
       POSTGRES_DB: card_qna_db
       POSTGRES_USER: mcp_user
-      POSTGRES_PASSWORD: mcp_password
+      POSTGRES_PASSWORD: ${MCP_PASSWORD}
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
     ports:
       - "5432:5432"
