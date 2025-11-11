@@ -11,8 +11,8 @@ services:
     container_name: mcp-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: card_qna_db
-      POSTGRES_USER: mcp_user
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${MCP_PASSWORD}
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
     ports:
