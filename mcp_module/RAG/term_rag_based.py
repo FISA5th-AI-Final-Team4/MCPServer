@@ -84,19 +84,28 @@ def search_term(term_query: str) -> Dict[str, Any]:
             t.related_terms,
             t.examples,
             c.category_name,
+            LENGTH(t.term) as term_length,
             CASE 
-                WHEN t.term = %s THEN 1.0                                    -- 정확 일치
+                WHEN t.term = %s THEN 1.0                                                      -- 정확 일치
                 WHEN LOWER(REPLACE(REPLACE(REPLACE(t.term, ' ', ''), '-', ''), '_', '')) = %s THEN 0.95  -- 정규화 일치
-                WHEN t.term LIKE %s THEN 0.8                                -- 부분 일치
+                WHEN POSITION(t.term IN %s) > 0 AND LENGTH(t.term) > 1 THEN 0.9              -- 역방향 검색: "연회비가 뭐야?"에서 "연회비" 찾기
+                WHEN t.term LIKE %s THEN 0.8                                                  -- 부분 일치
                 WHEN LOWER(REPLACE(REPLACE(REPLACE(t.term, ' ', ''), '-', ''), '_', '')) LIKE %s THEN 0.7  -- 정규화 부분 일치
+                WHEN POSITION(LOWER(REPLACE(REPLACE(REPLACE(t.term, ' ', ''), '-', ''), '_', '')) IN %s) > 0 
+                     AND LENGTH(t.term) > 1 THEN 0.65                                         -- 역방향 정규화 검색
                 ELSE 0.5
             END AS sim
         FROM terms t
         JOIN term_categories c ON t.category_id = c.category_id
-        WHERE t.term LIKE %s 
-           OR t.term = %s
-           OR LOWER(REPLACE(REPLACE(REPLACE(t.term, ' ', ''), '-', ''), '_', '')) LIKE %s
-        ORDER BY sim DESC
+        WHERE LENGTH(t.term) > 1                                                              -- 1글자 용어 제외 (오탐 방지)
+          AND (
+              t.term = %s 
+              OR t.term LIKE %s
+              OR POSITION(t.term IN %s) > 0                                                  -- 역방향: 사용자 질문에 용어가 포함되는지
+              OR LOWER(REPLACE(REPLACE(REPLACE(t.term, ' ', ''), '-', ''), '_', '')) LIKE %s
+              OR POSITION(LOWER(REPLACE(REPLACE(REPLACE(t.term, ' ', ''), '-', ''), '_', '')) IN %s) > 0  -- 역방향 정규화
+          )
+        ORDER BY sim DESC, term_length DESC                                                   -- 유사도 우선, 같으면 긴 용어 우선
         LIMIT 1;
     """
     
@@ -109,11 +118,15 @@ def search_term(term_query: str) -> Dict[str, Any]:
                 cursor.execute(query, (
                     term_query,                 # CASE WHEN t.term = ?
                     normalized_query,           # CASE WHEN normalized = ?
+                    term_query,                 # CASE WHEN POSITION(t.term IN ?) (역방향)
                     like_pattern,               # CASE WHEN t.term LIKE ?
                     normalized_like_pattern,    # CASE WHEN normalized LIKE ?
-                    like_pattern,               # WHERE t.term LIKE ?
+                    normalized_query,           # CASE WHEN POSITION(...) (역방향 정규화)
                     term_query,                 # WHERE t.term = ?
-                    normalized_like_pattern     # WHERE normalized LIKE ?
+                    like_pattern,               # WHERE t.term LIKE ?
+                    term_query,                 # WHERE POSITION(t.term IN ?) (역방향)
+                    normalized_like_pattern,    # WHERE normalized LIKE ?
+                    normalized_query            # WHERE POSITION(...) (역방향 정규화)
                 ))
                 result = cursor.fetchone()
                 
