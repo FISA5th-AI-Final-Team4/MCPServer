@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
 
+    # Qdrant 서버 설정 (환경변수로 관리)
+    QDRANT_HOST: str
+    QDRANT_PORT: int
+
     # GPU 사용 가능 여부
     DEVICE: str = "cuda" if cuda_is_available() else "cpu"
     
