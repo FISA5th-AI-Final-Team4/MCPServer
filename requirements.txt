@@ -4,10 +4,16 @@
 #
 #    pip-compile requirements.in
 #
+accelerate==1.11.0
+    # via
+    #   flagembedding
+    #   peft
 aiohappyeyeballs==2.6.1
     # via aiohttp
 aiohttp==3.13.2
-    # via langchain-community
+    # via
+    #   fsspec
+    #   langchain-community
 aiosignal==1.4.0
     # via aiohttp
 annotated-types==0.7.0
@@ -31,8 +37,12 @@ beartype==0.22.4
     # via
     #   py-key-value-aio
     #   py-key-value-shared
+beautifulsoup4==4.14.2
+    # via ir-datasets
 cachetools==6.2.1
     # via py-key-value-aio
+cbor==1.0.0
+    # via trec-car-tools
 certifi==2025.10.5
     # via
     #   httpcore
@@ -54,6 +64,12 @@ cyclopts==4.1.0
     # via fastmcp
 dataclasses-json==0.6.7
     # via langchain-community
+datasets==4.4.1
+    # via flagembedding
+dill==0.4.0
+    # via
+    #   datasets
+    #   multiprocess
 diskcache==5.6.3
     # via py-key-value-aio
 dnspython==2.8.0
@@ -78,47 +94,64 @@ fastmcp==2.13.0.1
     # via -r requirements.in
 filelock==3.20.0
     # via
+    #   datasets
     #   huggingface-hub
     #   torch
     #   transformers
+flagembedding==1.3.5
+    # via -r requirements.in
 frozenlist==1.8.0
     # via
     #   aiohttp
     #   aiosignal
-fsspec==2025.10.0
+fsspec[http]==2025.10.0
     # via
+    #   datasets
     #   huggingface-hub
     #   torch
 greenlet==3.2.4
     # via sqlalchemy
+grpcio==1.76.0
+    # via qdrant-client
 h11==0.16.0
     # via
     #   httpcore
     #   uvicorn
+h2==4.3.0
+    # via httpx
 hf-xet==1.2.0
     # via huggingface-hub
+hpack==4.1.0
+    # via h2
 httpcore==1.0.9
     # via httpx
 httptools==0.7.1
     # via uvicorn
-httpx==0.28.1
+httpx[http2]==0.28.1
     # via
     #   -r requirements.in
+    #   datasets
     #   fastapi-mcp
     #   fastmcp
     #   langgraph-sdk
     #   langsmith
     #   mcp
     #   ollama
+    #   qdrant-client
 httpx-sse==0.4.3
     # via
     #   langchain-community
     #   mcp
 huggingface-hub==0.36.0
     # via
+    #   accelerate
+    #   datasets
+    #   peft
     #   sentence-transformers
     #   tokenizers
     #   transformers
+hyperframe==6.1.0
+    # via h2
 idna==3.11
     # via
     #   anyio
@@ -126,8 +159,14 @@ idna==3.11
     #   httpx
     #   requests
     #   yarl
+ijson==3.4.0.post0
+    # via ir-datasets
 iniconfig==2.3.0
     # via pytest
+inscriptis==2.6.0
+    # via ir-datasets
+ir-datasets==0.5.11
+    # via flagembedding
 isodate==0.7.2
     # via openapi-core
 jaraco-classes==3.4.0
@@ -201,6 +240,12 @@ langsmith==0.4.38
     #   langchain-core
 lazy-object-proxy==1.12.0
     # via openapi-spec-validator
+lxml==6.0.2
+    # via
+    #   inscriptis
+    #   ir-datasets
+lz4==4.4.5
+    # via ir-datasets
 markdown-it-py==4.0.0
     # via rich
 markupsafe==3.0.3
@@ -226,17 +271,26 @@ multidict==6.7.0
     # via
     #   aiohttp
     #   yarl
+multiprocess==0.70.18
+    # via datasets
 mypy-extensions==1.1.0
     # via typing-inspect
 networkx==3.5
     # via torch
 numpy==2.3.4
     # via
+    #   accelerate
+    #   datasets
     #   faiss-cpu
+    #   ir-datasets
     #   langchain-community
+    #   pandas
+    #   peft
+    #   qdrant-client
     #   scikit-learn
     #   scipy
     #   transformers
+    #   trec-car-tools
 nvidia-cublas-cu12==12.8.4.1
     # via
     #   nvidia-cudnn-cu12
@@ -296,35 +350,56 @@ ormsgpack==1.11.0
     # via langgraph-checkpoint
 packaging==25.0
     # via
+    #   accelerate
+    #   datasets
     #   faiss-cpu
     #   huggingface-hub
     #   langchain-core
     #   langsmith
     #   marshmallow
+    #   peft
     #   pytest
     #   transformers
+pandas==2.3.3
+    # via datasets
 parse==1.20.2
     # via openapi-core
 pathable==0.4.4
     # via jsonschema-path
 pathvalidate==3.3.1
     # via py-key-value-aio
+peft==0.18.0
+    # via flagembedding
 pillow==12.0.0
     # via sentence-transformers
 platformdirs==4.5.0
     # via fastmcp
 pluggy==1.6.0
     # via pytest
+portalocker==3.2.0
+    # via qdrant-client
 propcache==0.4.1
     # via
     #   aiohttp
     #   yarl
+protobuf==6.33.1
+    # via
+    #   flagembedding
+    #   qdrant-client
+psutil==7.1.3
+    # via
+    #   accelerate
+    #   peft
 psycopg2-binary==2.9.10
     # via -r requirements.in
 py-key-value-aio[disk,keyring,memory]==0.2.8
     # via fastmcp
 py-key-value-shared==0.2.8
     # via py-key-value-aio
+pyarrow==22.0.0
+    # via
+    #   datasets
+    #   ir-datasets
 pycparser==2.23
     # via cffi
 pydantic[email]==2.12.2
@@ -342,6 +417,7 @@ pydantic[email]==2.12.2
     #   ollama
     #   openapi-pydantic
     #   pydantic-settings
+    #   qdrant-client
 pydantic-core==2.41.4
     # via pydantic
 pydantic-settings==2.11.0
@@ -358,6 +434,8 @@ pyperclip==1.11.0
     # via fastmcp
 pytest==8.4.2
     # via -r requirements.in
+python-dateutil==2.9.0.post0
+    # via pandas
 python-dotenv==1.1.0
     # via
     #   -r requirements.in
@@ -368,15 +446,23 @@ python-multipart==0.0.20
     # via
     #   -r requirements.in
     #   mcp
+pytz==2025.2
+    # via pandas
 pyyaml==6.0.3
     # via
+    #   accelerate
+    #   datasets
     #   huggingface-hub
+    #   ir-datasets
     #   jsonschema-path
     #   langchain-classic
     #   langchain-community
     #   langchain-core
+    #   peft
     #   transformers
     #   uvicorn
+qdrant-client==1.15.0
+    # via -r requirements.in
 referencing==0.36.2
     # via
     #   jsonschema
@@ -386,8 +472,11 @@ regex==2025.11.3
     # via transformers
 requests==2.32.5
     # via
+    #   datasets
     #   fastapi-mcp
     #   huggingface-hub
+    #   inscriptis
+    #   ir-datasets
     #   jsonschema-path
     #   langchain-classic
     #   langchain-community
@@ -412,7 +501,10 @@ rpds-py==0.28.0
     #   jsonschema
     #   referencing
 safetensors==0.6.2
-    # via transformers
+    # via
+    #   accelerate
+    #   peft
+    #   transformers
 scikit-learn==1.7.2
     # via sentence-transformers
 scipy==1.16.3
@@ -422,13 +514,21 @@ scipy==1.16.3
 secretstorage==3.4.0
     # via keyring
 sentence-transformers==5.1.2
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   flagembedding
+sentencepiece==0.2.1
+    # via flagembedding
 shellingham==1.5.4
     # via typer
 six==1.17.0
-    # via rfc3339-validator
+    # via
+    #   python-dateutil
+    #   rfc3339-validator
 sniffio==1.3.1
     # via anyio
+soupsieve==2.8
+    # via beautifulsoup4
 sqlalchemy==2.0.44
     # via
     #   langchain-classic
@@ -452,14 +552,27 @@ tokenizers==0.22.1
 tomli==2.3.0
     # via fastapi-mcp
 torch==2.9.0
-    # via sentence-transformers
+    # via
+    #   -r requirements.in
+    #   accelerate
+    #   flagembedding
+    #   peft
+    #   sentence-transformers
 tqdm==4.67.1
     # via
+    #   datasets
     #   huggingface-hub
+    #   ir-datasets
+    #   peft
     #   sentence-transformers
     #   transformers
 transformers==4.57.1
-    # via sentence-transformers
+    # via
+    #   flagembedding
+    #   peft
+    #   sentence-transformers
+trec-car-tools==2.6
+    # via ir-datasets
 triton==3.5.0
     # via torch
 typer==0.20.0
@@ -468,8 +581,10 @@ typing-extensions==4.15.0
     # via
     #   aiosignal
     #   anyio
+    #   beautifulsoup4
     #   exceptiongroup
     #   fastapi
+    #   grpcio
     #   huggingface-hub
     #   langchain-core
     #   openapi-core
@@ -490,8 +605,14 @@ typing-inspection==0.4.2
     # via
     #   pydantic
     #   pydantic-settings
+tzdata==2025.2
+    # via pandas
+unlzw3==0.2.3
+    # via ir-datasets
 urllib3==2.5.0
-    # via requests
+    # via
+    #   qdrant-client
+    #   requests
 uvicorn[standard]==0.38.0
     # via
     #   -r requirements.in
@@ -499,6 +620,10 @@ uvicorn[standard]==0.38.0
     #   mcp
 uvloop==0.22.1
     # via uvicorn
+warc3-wet==0.2.5
+    # via ir-datasets
+warc3-wet-clueweb09==0.2.5
+    # via ir-datasets
 watchfiles==1.1.1
     # via uvicorn
 websockets==15.0.1
@@ -508,9 +633,13 @@ websockets==15.0.1
 werkzeug==3.1.1
     # via openapi-core
 xxhash==3.6.0
-    # via langgraph
+    # via
+    #   datasets
+    #   langgraph
 yarl==1.22.0
     # via aiohttp
+zlib-state==0.1.10
+    # via ir-datasets
 zstandard==0.25.0
     # via langsmith
 
