@@ -1,3 +1,4 @@
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,6 +9,26 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str
     OLLAMA_MODEL_NAME: str
 
+    
+    # RAG 전역 설정
+    VECTOR_DB_PATH: Path = Path(__file__).parent.parent / "data" / "VectorDB"
+    EMBEDDING_MODEL_NAME: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    
+    # PostgreSQL 설정 (환경변수로 관리)
+    POSTGRES_HOST: str
+    POSTGRES_PORT: int
+    POSTGRES_DB: str
+    POSTGRES_USER: str
+    POSTGRES_PASSWORD: str
+    
+    @property
+    def POSTGRES_PASSWORD(self) -> str:
+        """POSTGRES_PASSWORD를 PostgreSQL 비밀번호로 사용"""
+        return self.POSTGRESM_PASSWORD
+    
+    @property
+    def DATABASE_URL(self) -> str:
+        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
     # .env 환경변수 파일 로드
     model_config = SettingsConfigDict(
