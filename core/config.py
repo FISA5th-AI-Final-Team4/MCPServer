@@ -1,6 +1,6 @@
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
+from torch.cuda import is_available as cuda_is_available
 
 class Settings(BaseSettings):
     # 시스템 환경변수 적용
@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     POSTGRES_DB: str
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
+
+    # GPU 사용 가능 여부
+    DEVICE: str = "cuda" if cuda_is_available() else "cpu"
     
     @property
     def POSTGRES_PASSWORD(self) -> str:
