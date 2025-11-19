@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from mcp_module.RAG.card_desc_rag_based import card_recommendation_rag_pipeline
 from mcp_module.RAG.faq_rag_based import search_faq
+from mcp_module.RAG.retrieval_qdrant import card_desc_hybrid_search_generation
 from mcp_module.RAG.term_rag_based import search_term
 from schemas.card_recommendation import (
     CardRecommendationRequest,
@@ -28,12 +29,11 @@ router = APIRouter(prefix="/tools", tags=["mcp-tools"])
 
 @router.post(
     "/card-recommendation",
-    response_model=CardRecommendationResponse,
     summary="카드 추천 RAG 파이프라인",
     description="사용자 질문을 받아 RAG 파이프라인을 실행하여 카드를 추천합니다.",
     operation_id="get_card_recommendation"
 )
-async def card_recommendation(request: CardRecommendationRequest) -> CardRecommendationResponse:
+async def card_recommendation(request: CardRecommendationRequest):
     """
     카드 추천 RAG 파이프라인 실행
     
@@ -44,31 +44,11 @@ async def card_recommendation(request: CardRecommendationRequest) -> CardRecomme
     try:
         print(f"\n[API] 카드 추천 요청: {request.query}")
         
-        # RAG 파이프라인 실행
-        result = card_recommendation_rag_pipeline(
-            query=request.query,
-            retrieve_k=request.retrieve_k,
-            final_k=request.final_k
-        )
-        
-        # 응답 변환
-        response = CardRecommendationResponse(
-            query=result["query"],
-            retrieved_count=result["retrieved_count"],
-            final_count=result["final_count"],
-            answer=result["answer"],
-            context_docs=[
-                ContextDocument(
-                    content=doc["content"],
-                    metadata=doc["metadata"]
-                )
-                for doc in result["context_docs"]
-            ]
-        )
+        answer = card_desc_hybrid_search_generation(request.query)
         
         print(f"[API] 카드 추천 완료\n")
         
-        return response
+        return {"answer": answer}
         
     except FileNotFoundError as e:
         raise HTTPException(
