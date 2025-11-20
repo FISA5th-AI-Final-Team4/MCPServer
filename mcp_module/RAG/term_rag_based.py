@@ -53,7 +53,7 @@ def get_db_connection():
             conn.close()
 
 
-def search_term(term_query: str) -> Dict[str, Any]:
+def search_term(term_query: str) -> str:
     """
     금융 용어 검색 및 설명 생성
     
@@ -63,13 +63,7 @@ def search_term(term_query: str) -> Dict[str, Any]:
         term_query: 검색할 용어
         
     Returns:
-        {
-            "success": bool,
-            "query": str,
-            "term_info": Dict,
-            "answer": str,
-            "related_terms": List
-        }
+        str: 용어 정의와 관련 정보가 포함된 답변 텍스트
     """
     
     # 정규화된 검색어 생성
@@ -131,13 +125,7 @@ def search_term(term_query: str) -> Dict[str, Any]:
                 result = cursor.fetchone()
                 
                 if not result:
-                    return {
-                        "success": False,
-                        "query": term_query,
-                        "term_info": None,
-                        "answer": f"'{term_query}'에 대한 용어를 찾을 수 없습니다. 다른 키워드로 검색해주세요.",
-                        "related_terms": []
-                    }
+                    return f"'{term_query}'에 대한 용어를 찾을 수 없습니다. 다른 키워드로 검색해주세요."
                 
                 term_info = dict(result)
                 
@@ -147,14 +135,7 @@ def search_term(term_query: str) -> Dict[str, Any]:
                 answer += f"\n\n[{term_info['category_name']}]\n\n"
                 answer += f"[정의]\n{term_info['definition']}\n"
                 
-                if term_info['examples']:
-                    examples = term_info['examples']
-                    if isinstance(examples, dict) and examples:
-                        answer += f"\n\n[예시]\n"
-                        for key, value in examples.items():
-                            answer += f"- {value}\n"
-                
-                related_terms = []
+                # related_terms 처리
                 if term_info['related_terms']:
                     related_query = """
                         SELECT term, definition
@@ -164,29 +145,14 @@ def search_term(term_query: str) -> Dict[str, Any]:
                     """
                     cursor.execute(related_query, (term_info['related_terms'],))
                     related_results = cursor.fetchall()
-                    related_terms = [dict(row) for row in related_results]
                     
-                    if related_terms:
+                    if related_results:
                         answer += f"\n\n[관련 용어]\n"
-                        for rt in related_terms:
-                            answer += f"- {rt['term']}: {rt['definition'][:50]}...\n"
+                        for row in related_results:
+                            answer += f"- {row['term']}: {row['definition'][:50]}...\n"
                 
-                return {
-                    "success": True,
-                    "query": term_query,
-                    "term_info": term_info,
-                    "answer": answer,
-                    "related_terms": related_terms,
-                    "similarity": float(term_info['sim'])
-                }
+                return answer
                 
     except Exception as e:
         print(f"용어 검색 오류: {e}")
-        return {
-            "success": False,
-            "query": term_query,
-            "term_info": None,
-            "answer": f"검색 중 오류가 발생했습니다: {str(e)}",
-            "related_terms": [],
-            "similarity": None
-        }
+        return f"검색 중 오류가 발생했습니다: {str(e)}"
