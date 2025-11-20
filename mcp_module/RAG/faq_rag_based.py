@@ -26,11 +26,11 @@ from core.config import settings
 # 전역 모델 로드 (앱 시작 시 1회만 로드)
 # ============================================================================
 
-# 임베딩 모델: 다국어 지원 경량 모델 (약 420MB)
+# 임베딩 모델: 한국어 특화 경량 모델 (~110MB)
 # 질문과 FAQ를 벡터로 변환하여 의미적 유사도 계산
 _embedding_model = None
 
-# Reranker 모델: 질문-FAQ 쌍의 관련성 재평가 (약 280MB)
+# Reranker 모델: 한국어 특화 리랭킹 모델 (~110MB)
 # Cross-Encoder 방식으로 더 정확한 점수 산출
 _reranker_model = None
 
@@ -42,7 +42,7 @@ def get_embedding_model() -> SentenceTransformer:
     jhgan/ko-sbert-multitask:
     - 한국어 특화 BERT (KoBERT 기반)
     - 384차원 벡터
-    - 약 110MB (매우 가벼움, 기존 420MB → 110MB)
+    - 약 110MB 
     - 한국어 문장 유사도에 최적화
     """
     global _embedding_model
@@ -60,17 +60,17 @@ def get_reranker_model() -> CrossEncoder:
     """
     Reranker 모델 Lazy Loading
     
-    cross-encoder/ms-marco-MiniLM-L-2-v2:
-    - MS-MARCO 데이터로 학습된 초경량 모델
+    jhgan/ko-sroberta-multitask:
+    - 한국어 특화 RoBERTa 기반 Cross-Encoder
     - 질문-문서 쌍의 관련성 점수 (0~1)
-    - 약 60MB (초경량, 기존 280MB → 60MB)
-    - 2-layer Transformer (매우 빠른 추론)
+    - 약 110MB (한국어 최적화)
+    - NLI/STS 멀티태스크로 학습 (문장 관계 판단 정확도 높음)
     """
     global _reranker_model
     if _reranker_model is None:
-        print("[FAQ] Reranker 모델 로드 중... (ms-marco-MiniLM-L-2-v2, ~60MB)")
+        print("[FAQ] Reranker 모델 로드 중... (ko-sroberta-multitask, ~110MB)")
         _reranker_model = CrossEncoder(
-            'cross-encoder/ms-marco-MiniLM-L-2-v2',
+            'jhgan/ko-sroberta-multitask',
             max_length=512,
             device=settings.DEVICE
         )
