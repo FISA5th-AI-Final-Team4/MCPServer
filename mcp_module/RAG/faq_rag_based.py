@@ -245,9 +245,10 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
         # 3단계: 최종 점수 계산 (키워드 + 의미)
         for i, faq in enumerate(candidates):
             faq['semantic_score'] = float(similarities[i])
+            match_score = float(faq.get('match_score', 0))  # Decimal → float 변환
             faq['final_score'] = (
-                faq.get('match_score', 0) * 0.2 +  # 키워드 매칭 20%
-                faq['semantic_score'] * 0.8         # 의미 유사도 80%
+                match_score * 0.2 +         # 키워드 매칭 20%
+                faq['semantic_score'] * 0.8  # 의미 유사도 80%
             )
         
         embed_time = (time.time() - embed_start) * 1000
@@ -262,9 +263,10 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
         
         # Top-3 상세 로그
         for idx, faq in enumerate(top_faqs, 1):
+            match_score = float(faq.get('match_score', 0))
             print(f"[FAQ] Top-{idx}: {faq['question'][:40]}... "
                   f"(최종: {faq['final_score']:.3f}, 의미: {faq['semantic_score']:.3f}, "
-                  f"키워드: {faq.get('match_score', 0)})")
+                  f"키워드: {match_score})")
         
         # 답변 구성
         best = top_faqs[0]
