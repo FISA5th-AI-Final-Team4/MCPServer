@@ -131,8 +131,14 @@ def filter_faqs_by_keywords(question: str) -> List[Dict[str, Any]]:
     expanded_list = list(expanded_keywords)
     
     # 정규화
-    normalized = [normalize_text(kw) for kw in expanded_list]
+    normalized = [normalize_text(kw) for kw in expanded_list if kw]
     all_keywords = list(set(expanded_list + normalized))
+    
+    if not all_keywords:
+        return []
+    
+    # ILIKE 패턴 생성
+    ilike_patterns = [f'%{kw}%' for kw in all_keywords]
     
     query = """
         SELECT 
@@ -142,16 +148,20 @@ def filter_faqs_by_keywords(question: str) -> List[Dict[str, Any]]:
             (
                 -- normalized_keywords 매칭
                 (SELECT COUNT(*) FROM unnest(f.normalized_keywords) AS k WHERE k = ANY(%s::text[])) * 2 +
-                -- user_expressions 매칭 (높은 가중치)
-                (SELECT COUNT(*) FROM unnest(f.user_expressions) AS k WHERE k ILIKE ANY(ARRAY(SELECT '%' || unnest(%s::text[]) || '%')::text[])) * 3
+                -- keywords 매칭
+                (SELECT COUNT(*) FROM unnest(f.keywords) AS k WHERE k = ANY(%s::text[])) * 1.5 +
+                -- user_expressions 부분 매칭 (높은 가중치)
+                (SELECT COUNT(*) FROM unnest(f.user_expressions) AS expr 
+                 WHERE expr ILIKE ANY(%s::text[])) * 3
             ) AS match_score
         FROM faqs f
         JOIN faq_categories c ON f.category_id = c.category_id
         WHERE 
             f.normalized_keywords && %s::text[]  -- GIN 인덱스 사용
+            OR f.keywords && %s::text[]
             OR EXISTS (
                 SELECT 1 FROM unnest(f.user_expressions) AS expr
-                WHERE expr ILIKE ANY(ARRAY(SELECT '%' || unnest(%s::text[]) || '%')::text[])
+                WHERE expr ILIKE ANY(%s::text[])
             )
         ORDER BY match_score DESC, f.priority DESC
         LIMIT 15;
@@ -161,14 +171,19 @@ def filter_faqs_by_keywords(question: str) -> List[Dict[str, Any]]:
         start = time.time()
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute(query, (all_keywords, all_keywords, all_keywords, all_keywords))
+                cursor.execute(query, (
+                    all_keywords, all_keywords, ilike_patterns,
+                    all_keywords, all_keywords, ilike_patterns
+                ))
                 results = cursor.fetchall()
                 elapsed = (time.time() - start) * 1000
                 print(f"[FAQ] 키워드 필터링: {len(results)}개 후보 ({elapsed:.1f}ms)")
-                print(f"[FAQ] 확장 키워드: {list(expanded_keywords)[:5]}...")
+                print(f"[FAQ] 확장 키워드: {all_keywords[:8]}")
                 return [dict(row) for row in results]
     except Exception as e:
         print(f"[FAQ] 필터링 오류: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 
@@ -231,8 +246,8 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
         for i, faq in enumerate(candidates):
             faq['semantic_score'] = float(similarities[i])
             faq['final_score'] = (
-                faq.get('match_score', 0) * 0.3 +  # 키워드 매칭 30%
-                faq['semantic_score'] * 0.7         # 의미 유사도 70%
+                faq.get('match_score', 0) * 0.2 +  # 키워드 매칭 20%
+                faq['semantic_score'] * 0.8         # 의미 유사도 80%
             )
         
         embed_time = (time.time() - embed_start) * 1000
@@ -244,7 +259,12 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
         
         total_time = (time.time() - start_time) * 1000
         print(f"[FAQ] 총 시간: {total_time:.1f}ms")
-        print(f"[FAQ] Top-1: {top_faqs[0]['question'][:50]}... (점수: {top_faqs[0]['final_score']:.3f})")
+        
+        # Top-3 상세 로그
+        for idx, faq in enumerate(top_faqs, 1):
+            print(f"[FAQ] Top-{idx}: {faq['question'][:40]}... "
+                  f"(최종: {faq['final_score']:.3f}, 의미: {faq['semantic_score']:.3f}, "
+                  f"키워드: {faq.get('match_score', 0)})")
         
         # 답변 구성
         best = top_faqs[0]
