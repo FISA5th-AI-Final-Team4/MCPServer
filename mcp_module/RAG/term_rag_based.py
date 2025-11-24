@@ -156,7 +156,9 @@ def search_term(term_query: str) -> str:
                     return f"'{keyword}'에 대한 용어를 찾을 수 없습니다. 다른 키워드로 검색해주세요."
                 
                 term_info = dict(result)
-                print(f"[TERM] 매칭 결과: '{term_info['term']}' (유사도: {term_info['similarity_score']:.2f})")
+                # Decimal 타입을 float로 변환
+                similarity = float(term_info['similarity_score'])
+                print(f"[TERM] 매칭 결과: '{term_info['term']}' (유사도: {similarity:.2f})")
                 
                 # 답변 구성
                 answer = f"{term_info['term']}"
