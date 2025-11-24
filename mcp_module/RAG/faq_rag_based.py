@@ -2,14 +2,19 @@
 FAQ Optimized Hybrid Search 모듈
 
 3단계 최적화 검색:
-1. 동의어 확장 (synonym_mappings 활용)
+1. 동의어 확장 (synonym_mappings 활용 - 61개 매핑)
 2. 키워드 필터링 (GIN 인덱스: normalized_keywords, user_expressions)
 3. 의미 검색 (필터링된 후보군만 임베딩)
 
 성능 개선:
-- DB 인덱스 최대 활용 (GIN 인덱스 3개)
-- 동의어 자동 확장 (61개 매핑)
-- 임베딩 대상 축소 (24개 → 5~15개)
+- DB 인덱스 활용 (normalized_keywords, user_expressions GIN 인덱스)
+- 동의어 자동 확장으로 검색 범위 확대
+- 임베딩 대상 축소 (24개 → 5~15개 후보로 좁혀서 처리)
+
+필드 사용:
+- normalized_keywords: 핵심 키워드 (정규화됨)
+- user_expressions: 사용자 표현 패턴 (높은 가중치)
+- keywords: 사용 중단 (normalized_keywords로 통합)
 """
 
 import psycopg2
@@ -124,44 +129,45 @@ def filter_faqs_by_keywords(question: str) -> List[Dict[str, Any]]:
     키워드 + 동의어 기반 필터링 (GIN 인덱스 활용)
     
     활용 인덱스:
-    - idx_faq_normalized_keywords (GIN)
-    - idx_faq_user_expressions (GIN)
+    - idx_faq_normalized_keywords (GIN) - 정규화된 키워드
+    - idx_faq_user_expressions (GIN) - 사용자 표현 패턴
     
     성능: 24개 전체 → 5~15개 후보군
     """
-    # 동의어 확장
+    # 1. 동의어 확장
     expanded_keywords = expand_with_synonyms(question)
     expanded_list = list(expanded_keywords)
     
-    # 정규화
+    # 2. 정규화 (중복 제거)
     normalized = [normalize_text(kw) for kw in expanded_list if kw]
     all_keywords = list(set(expanded_list + normalized))
     
     if not all_keywords:
         return []
     
-    # ILIKE 패턴 생성
+    # 3. ILIKE 패턴 생성 (user_expressions 부분 매칭용)
     ilike_patterns = [f'%{kw}%' for kw in all_keywords]
     
+    # 4. 필터링 쿼리 (keywords 필드 제거, normalized_keywords만 사용)
     query = """
         SELECT 
             f.faq_id, f.question, f.answer, f.category_id,
             c.category_name, f.priority,
-            -- 매칭 점수 계산
+            -- 매칭 점수 계산 (가중치: normalized_keywords=2.0, user_expressions=3.0)
             (
-                -- normalized_keywords 매칭
-                (SELECT COUNT(*) FROM unnest(f.normalized_keywords) AS k WHERE k = ANY(%s::text[])) * 2 +
-                -- keywords 매칭
-                (SELECT COUNT(*) FROM unnest(f.keywords) AS k WHERE k = ANY(%s::text[])) * 1.5 +
-                -- user_expressions 부분 매칭 (높은 가중치)
-                (SELECT COUNT(*) FROM unnest(f.user_expressions) AS expr 
-                 WHERE expr ILIKE ANY(%s::text[])) * 3
+                COALESCE(
+                    (SELECT COUNT(*) FROM unnest(f.normalized_keywords) AS k 
+                     WHERE k = ANY(%s::text[])), 0
+                ) * 2.0 +
+                COALESCE(
+                    (SELECT COUNT(*) FROM unnest(f.user_expressions) AS expr 
+                     WHERE expr ILIKE ANY(%s::text[])), 0
+                ) * 3.0
             ) AS match_score
         FROM faqs f
         JOIN faq_categories c ON f.category_id = c.category_id
         WHERE 
-            f.normalized_keywords && %s::text[]  -- GIN 인덱스 사용
-            OR f.keywords && %s::text[]
+            f.normalized_keywords && %s::text[]  -- GIN 인덱스 활용
             OR EXISTS (
                 SELECT 1 FROM unnest(f.user_expressions) AS expr
                 WHERE expr ILIKE ANY(%s::text[])
@@ -175,13 +181,13 @@ def filter_faqs_by_keywords(question: str) -> List[Dict[str, Any]]:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(query, (
-                    all_keywords, all_keywords, ilike_patterns,
-                    all_keywords, all_keywords, ilike_patterns
+                    all_keywords, ilike_patterns,
+                    all_keywords, ilike_patterns
                 ))
                 results = cursor.fetchall()
                 elapsed = (time.time() - start) * 1000
                 print(f"[FAQ] 키워드 필터링: {len(results)}개 후보 ({elapsed:.1f}ms)")
-                print(f"[FAQ] 확장 키워드: {all_keywords[:8]}")
+                print(f"[FAQ] 확장 키워드 샘플: {all_keywords[:5]}...")
                 return [dict(row) for row in results]
     except Exception as e:
         print(f"[FAQ] 필터링 오류: {e}")
@@ -242,17 +248,20 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
         
         similarities = cosine_similarity(q_embed.reshape(1, -1), candidate_embeds)[0]
         
-        # 3단계: 최종 점수 계산 (키워드 + 의미)
+        # 3단계: 최종 점수 계산 (키워드 + 의미 하이브리드)
         for i, faq in enumerate(candidates):
-            faq['semantic_score'] = float(similarities[i])
-            match_score = float(faq.get('match_score', 0))  # Decimal → float 변환
+            semantic_score = float(similarities[i])
+            keyword_score = float(faq.get('match_score', 0))  # Decimal → float
+            
+            faq['semantic_score'] = semantic_score
+            faq['keyword_score'] = keyword_score
             faq['final_score'] = (
-                match_score * 0.2 +         # 키워드 매칭 20%
-                faq['semantic_score'] * 0.8  # 의미 유사도 80%
+                keyword_score * 0.2 +   # 키워드 매칭 20%
+                semantic_score * 0.8    # 의미 유사도 80%
             )
         
         embed_time = (time.time() - embed_start) * 1000
-        print(f"[FAQ] 임베딩 시간: {embed_time:.1f}ms (대상: {len(candidates)}개)")
+        print(f"[FAQ] 임베딩: {embed_time:.1f}ms ({len(candidates)}개)")
         
         # 정렬 및 선택
         candidates.sort(key=lambda x: x['final_score'], reverse=True)
@@ -261,12 +270,11 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
         total_time = (time.time() - start_time) * 1000
         print(f"[FAQ] 총 시간: {total_time:.1f}ms")
         
-        # Top-3 상세 로그
+        # Top-3 결과 로그
         for idx, faq in enumerate(top_faqs, 1):
-            match_score = float(faq.get('match_score', 0))
-            print(f"[FAQ] Top-{idx}: {faq['question'][:40]}... "
-                  f"(최종: {faq['final_score']:.3f}, 의미: {faq['semantic_score']:.3f}, "
-                  f"키워드: {match_score})")
+            print(f"[FAQ] #{idx}: {faq['question'][:45]}... "
+                  f"(점수: {faq['final_score']:.3f} = 의미 {faq['semantic_score']:.3f} "
+                  f"+ 키워드 {faq['keyword_score']:.1f})")
         
         # 답변 구성
         best = top_faqs[0]
