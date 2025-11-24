@@ -34,6 +34,7 @@ from core.config import settings
 # ============================================================================
 _embedding_model = None
 _synonym_cache = None  # 동의어 캐싱
+_faq_embeddings_cache = None  # FAQ 임베딩 캐싱 (성능 최적화)
 
 
 def get_embedding_model() -> SentenceTransformer:
@@ -93,6 +94,62 @@ def load_synonyms() -> Dict[str, List[str]]:
     except Exception as e:
         print(f"[FAQ] 동의어 로드 오류: {e}")
         return {}
+
+
+def load_faq_embeddings() -> Dict[str, Any]:
+    """FAQ 임베딩 사전 계산 및 캐싱 (성능 최적화)"""
+    global _faq_embeddings_cache
+    if _faq_embeddings_cache is not None:
+        return _faq_embeddings_cache
+    
+    print("[FAQ] FAQ 임베딩 사전 계산 중...")
+    import time
+    start = time.time()
+    
+    try:
+        # 전체 FAQ 로드
+        query = """
+            SELECT f.faq_id, f.question, f.answer, c.category_name, f.priority
+            FROM faqs f
+            JOIN faq_categories c ON f.category_id = c.category_id
+            ORDER BY f.faq_id;
+        """
+        
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(query)
+                faqs = [dict(row) for row in cursor.fetchall()]
+        
+        if not faqs:
+            print("[FAQ] FAQ 데이터 없음")
+            return {'faqs': [], 'embeddings': None}
+        
+        # 임베딩 계산
+        model = get_embedding_model()
+        questions = [faq['question'] for faq in faqs]
+        embeddings = model.encode(
+            questions,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+            show_progress_bar=False
+        )
+        
+        elapsed = (time.time() - start) * 1000
+        print(f"[FAQ] FAQ 임베딩 완료: {len(faqs)}개 ({elapsed:.1f}ms)")
+        
+        _faq_embeddings_cache = {
+            'faqs': faqs,
+            'embeddings': embeddings,
+            'faq_map': {faq['faq_id']: idx for idx, faq in enumerate(faqs)}
+        }
+        
+        return _faq_embeddings_cache
+        
+    except Exception as e:
+        print(f"[FAQ] 임베딩 캐싱 오류: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'faqs': [], 'embeddings': None}
 
 
 def expand_with_synonyms(question: str) -> Set[str]:
@@ -214,54 +271,55 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
     start_time = time.time()
     
     try:
-        # 1단계: 동의어 확장 + 키워드 필터링 (GIN 인덱스)
+        # 1단계: FAQ 임베딩 로드 (캐시)
+        cache = load_faq_embeddings()
+        all_faqs = cache['faqs']
+        all_embeddings = cache['embeddings']
+        
+        if not all_faqs or all_embeddings is None:
+            return {
+                "answer": "FAQ 데이터를 불러올 수 없습니다.",
+                "relatedQuestions": []
+            }
+        
+        # 2단계: 키워드 필터링 (선택적)
         candidates = filter_faqs_by_keywords(question)
         
-        if not candidates:
-            print("[FAQ] 필터링 결과 없음 → 전체 검색 폴백")
-            # 폴백: 우선순위 높은 FAQ
-            query = """
-                SELECT f.faq_id, f.question, f.answer, c.category_name, f.priority
-                FROM faqs f
-                JOIN faq_categories c ON f.category_id = c.category_id
-                ORDER BY f.priority DESC, f.views DESC
-                LIMIT 10;
-            """
-            with get_db_connection() as conn:
-                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                    cursor.execute(query)
-                    candidates = [dict(row) for row in cursor.fetchall()]
+        # 필터링 결과가 있으면 해당 FAQ만, 없으면 전체 사용
+        if candidates:
+            # 필터링된 FAQ의 인덱스 찾기
+            candidate_ids = {faq['faq_id'] for faq in candidates}
+            indices = [cache['faq_map'][faq_id] for faq_id in candidate_ids if faq_id in cache['faq_map']]
+            
+            if indices:
+                candidates = [all_faqs[idx] for idx in indices]
+                candidate_embeds = all_embeddings[indices]
+            else:
+                candidates = all_faqs
+                candidate_embeds = all_embeddings
+        else:
+            print("[FAQ] 필터링 결과 없음 → 전체 FAQ 검색")
+            candidates = all_faqs
+            candidate_embeds = all_embeddings
         
-        # 2단계: 의미 검색 (필터링된 후보군만)
+        # 3단계: 질문 임베딩 및 유사도 계산
         embed_start = time.time()
         model = get_embedding_model()
         
         q_embed = model.encode(question, convert_to_numpy=True, normalize_embeddings=True)
-        
-        candidate_questions = [faq['question'] for faq in candidates]
-        candidate_embeds = model.encode(
-            candidate_questions,
-            convert_to_numpy=True,
-            normalize_embeddings=True,
-            show_progress_bar=False
-        )
-        
         similarities = cosine_similarity(q_embed.reshape(1, -1), candidate_embeds)[0]
         
-        # 3단계: 최종 점수 계산 (키워드 + 의미 하이브리드)
+        # 4단계: 최종 점수 계산 (의미 기반만 사용)
         for i, faq in enumerate(candidates):
             semantic_score = float(similarities[i])
-            keyword_score = float(faq.get('match_score', 0))  # Decimal → float
+            keyword_score = float(faq.get('match_score', 0))
             
             faq['semantic_score'] = semantic_score
             faq['keyword_score'] = keyword_score
-            faq['final_score'] = (
-                keyword_score * 0.2 +   # 키워드 매칭 20%
-                semantic_score * 0.8    # 의미 유사도 80%
-            )
+            faq['final_score'] = semantic_score  # 의미 유사도만 사용
         
         embed_time = (time.time() - embed_start) * 1000
-        print(f"[FAQ] 임베딩: {embed_time:.1f}ms ({len(candidates)}개)")
+        print(f"[FAQ] 질문 임베딩 + 유사도: {embed_time:.1f}ms (후보: {len(candidates)}개, 캐시 사용)")
         
         # 정렬 및 선택
         candidates.sort(key=lambda x: x['final_score'], reverse=True)
@@ -273,8 +331,7 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
         # Top-3 결과 로그
         for idx, faq in enumerate(top_faqs, 1):
             print(f"[FAQ] #{idx}: {faq['question'][:45]}... "
-                  f"(점수: {faq['final_score']:.3f} = 의미 {faq['semantic_score']:.3f} "
-                  f"+ 키워드 {faq['keyword_score']:.1f})")
+                  f"(의미 유사도: {faq['semantic_score']:.3f})")
         
         # 답변 구성
         best = top_faqs[0]
