@@ -141,7 +141,7 @@ def search_term(term_query: str) -> str:
                 
                 # Tuple → Dict 변환
                 columns = ['term_id', 'term', 'definition', 'english', 
-                          'related_terms', 'examples', 'category_name', 'similarity_score']
+                          'related_terms', 'views', 'category_name', 'similarity_score']
                 term_info = dict(zip(columns, result))
                 similarity = float(term_info['similarity_score'])
                 print(f"[TERM] 매칭: '{term_info['term']}' (유사도: {similarity:.2f})")
