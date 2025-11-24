@@ -112,7 +112,7 @@ def search_term(term_query: str) -> str:
     query = """
         SELECT 
             t.term_id, t.term, t.definition, t.english,
-            t.related_terms, t.examples, c.category_name,
+            t.related_terms, c.category_name,
             bigm_similarity(t.term, '{keyword}') AS similarity_score
         FROM terms t
         JOIN term_categories c ON t.category_id = c.category_id
@@ -141,7 +141,7 @@ def search_term(term_query: str) -> str:
                 
                 # Tuple → Dict 변환
                 columns = ['term_id', 'term', 'definition', 'english', 
-                          'related_terms', 'views', 'category_name', 'similarity_score']
+                          'related_terms', 'category_name', 'similarity_score']
                 term_info = dict(zip(columns, result))
                 similarity = float(term_info['similarity_score'])
                 print(f"[TERM] 매칭: '{term_info['term']}' (유사도: {similarity:.2f})")
