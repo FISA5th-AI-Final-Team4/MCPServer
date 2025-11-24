@@ -96,19 +96,22 @@ def expand_with_synonyms(question: str) -> Set[str]:
     
     예: "리밋 올리기" → ["리밋", "한도", "이용한도", "올리기"]
     """
-    synonyms = load_synonyms()
-    words = question.split()
-    expanded = set(words)
+    synonyms = load_synonyms()  # 동의어 사전 불러옴
+    words = question.split()    # 질문을 단어별로 분리
+    expanded = set(words)       # 중복 방지위해 집합(Set)으로 초기화
     
     for word in words:
         normalized_word = normalize_text(word)
-        # source_term 매칭
-        if word in synonyms:
-            expanded.update(synonyms[word])
-        if normalized_word in synonyms:
-            expanded.update(synonyms[normalized_word])
-        # target_terms 역방향 매칭
+        # source_term 매칭/ 단어가 사전에 Key(기준어)로 있는지 확인 # 있으면 그 짝(Value)들 다 넣음   
+        if word in synonyms:                
+            expanded.update(synonyms[word])     
+        if normalized_word in synonyms:         
+            expanded.update(synonyms[normalized_word])      
+            
+        # target_terms 역방향 매칭/ 단어가 사전에 Value(동의어 목록)속에 있는지 확인
         for source, targets in synonyms.items():
+            
+            # 내 단어(word)가 어떤 기준어(source)의 동의어 리스트(targets)에 포함이 되는가 ? 
             if word in targets or normalized_word in [normalize_text(t) for t in targets]:
                 expanded.add(source)
                 expanded.update(targets)
@@ -199,9 +202,6 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
     2. 키워드 필터링 (GIN 인덱스, 24개 → 5~15개)
     3. 의미 검색 (필터링된 후보군만 임베딩)
     
-    성능:
-    - 검색 시간: ~500ms → ~100ms (80% 개선)
-    - 정확도: 동의어 인식으로 향상
     """
     print(f"\n[FAQ] 검색: '{question}'")
     print("=" * 80)
