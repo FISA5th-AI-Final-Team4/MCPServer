@@ -4,16 +4,19 @@
 처리 프로세스:
 1. 키워드 추출 (Python): 질문에서 불필요한 어미/조사 제거
 2. SQL 실행 (Python → DB): 추출된 키워드로 DB 질의
-3. pg_bigm 유사도 계산 (DB): 오타/띄어쓰기 허용하며 유사도 점수 계산
+3. pg_bigm 유사도 계산 (DB): 2-gram 기반 오타/띄어쓰기 허용 유사도 점수 계산
 4. 최고점 반환 (DB → Python): 가장 유사한 용어 1개 반환
+
+특징:
+- pg_bigm: 한글/CJK 문자 최적화 (2-gram)
+- 오타 1~2글자 허용 (예: "연회삐" → "연회비")
+- 띄어쓰기 무시 (예: "연 회비" → "연회비")
 
 LLM Server의 operation_id: query_term_database
 """
 
 import re
 import psycopg2
-from psycopg2.extras import RealDictCursor
-from typing import Dict, Any
 from contextlib import contextmanager
 
 from core.config import settings
@@ -86,107 +89,83 @@ def search_term(term_query: str) -> str:
     """
     금융 용어 검색 (pg_bigm 유사도 기반)
     
-    전체 처리 프로세스:
-    1. 키워드 추출 (Python): 불필요한 어미 제거
-    2. SQL 실행 (Python → DB): 키워드로 DB 질의
-    3. pg_bigm 유사도 계산 (DB): 오타 허용 유사도 점수 계산
-    4. 최고점 반환 (DB → Python): Top-1 용어 반환
-    
     Args:
-        term_query: 사용자 질문 (예: "주택청약종합저축이 뭐야?")
+        term_query: 사용자 질문 (예: "연회비가 뭐야?", "연회삐")
         
     Returns:
-        str: 용어 정의와 관련 정보가 포함된 답변 텍스트
+        str: 용어 정의와 관련 정보
         
     Examples:
         >>> search_term("연회비가 뭐야?")
         "연회비 (Annual Fee)\n\n[카드 기본]\n\n[정의]\n..."
         
         >>> search_term("연회삐")  # 오타 허용
-        "연회비 (Annual Fee)\n\n[카드 기본]\n\n[정의]\n..."
+        "연회비 (Annual Fee) ..."
     """
+    print(f"[TERM] 검색: '{term_query}'")
     
-    print(f"[TERM] 원본 질문: '{term_query}'")
-    
-    # 1단계: 키워드 추출 (Python 영역)
+    # 키워드 추출
     keyword = extract_keyword(term_query)
-    print(f"[TERM] 추출 키워드: '{keyword}'")
+    print(f"[TERM] 키워드: '{keyword}'")
     
-    # 2-4단계: pg_bigm 유사도 검색 (DB 영역)
+    # SQL 쿼리 (pg_bigm 유사도 검색)
     query = """
         SELECT 
-            t.term_id,
-            t.term,
-            t.definition,
-            t.english,
-            t.related_terms,
-            t.examples,
-            c.category_name,
-            bigm_similarity(t.term, %s) AS similarity_score
+            t.term_id, t.term, t.definition, t.english,
+            t.related_terms, t.examples, c.category_name,
+            bigm_similarity(t.term, '{keyword}') AS similarity_score
         FROM terms t
         JOIN term_categories c ON t.category_id = c.category_id
-        WHERE LENGTH(t.term) > 1                     -- 1글자 용어 제외 (오탐 방지)
-          AND bigm_similarity(t.term, %s) > 0.1      -- 유사도 임계값 (10% 이상)
-        ORDER BY similarity_score DESC               -- 유사도 높은 순
+        WHERE LENGTH(t.term) > 1
+          AND bigm_similarity(t.term, '{keyword}') > 0.1
+        ORDER BY similarity_score DESC
         LIMIT 1;
-    """
+    """.format(keyword=keyword.replace("'", "''"))
     
     try:
         with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                # pg_bigm 확장 설치 확인 (최초 1회)
-                cursor.execute("""
-                    SELECT EXISTS(
-                        SELECT 1 FROM pg_extension WHERE extname = 'pg_bigm'
-                    ) AS is_installed;
-                """)
-                is_installed = cursor.fetchone()['is_installed']
-                
-                if not is_installed:
-                    print("[TERM] pg_bigm 확장 설치 중...")
+            with conn.cursor() as cursor:
+                # pg_bigm 확장 활성화 확인
+                cursor.execute("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_bigm');")
+                if not cursor.fetchone()[0]:
                     cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_bigm;")
                     conn.commit()
-                    print("[TERM] pg_bigm 설치 완료")
+                    print("[TERM] pg_bigm 확장 설치 완료")
                 
-                # 유사도 검색 실행
-                cursor.execute(query, (keyword, keyword))
+                # 유사도 검색
+                cursor.execute(query)
                 result = cursor.fetchone()
                 
                 if not result:
-                    return f"'{keyword}'에 대한 용어를 찾을 수 없습니다. 다른 키워드로 검색해주세요."
+                    return f"'{keyword}'에 대한 용어를 찾을 수 없습니다."
                 
-                term_info = dict(result)
-                # Decimal 타입을 float로 변환
+                # Tuple → Dict 변환
+                columns = ['term_id', 'term', 'definition', 'english', 
+                          'related_terms', 'examples', 'category_name', 'similarity_score']
+                term_info = dict(zip(columns, result))
                 similarity = float(term_info['similarity_score'])
-                print(f"[TERM] 매칭 결과: '{term_info['term']}' (유사도: {similarity:.2f})")
+                print(f"[TERM] 매칭: '{term_info['term']}' (유사도: {similarity:.2f})")
                 
                 # 답변 구성
-                answer = f"{term_info['term']}"
+                answer = term_info['term']
                 if term_info['english']:
                     answer += f" ({term_info['english']})"
                 answer += f"\n\n[{term_info['category_name']}]\n\n"
                 answer += f"[정의]\n{term_info['definition']}\n"
                 
-                # 관련 용어 처리
+                # 관련 용어
                 if term_info['related_terms']:
-                    related_query = """
-                        SELECT term, definition
-                        FROM terms
-                        WHERE term = ANY(%s)
-                        LIMIT 5;
-                    """
-                    cursor.execute(related_query, (term_info['related_terms'],))
-                    related_results = cursor.fetchall()
+                    terms_list = ','.join([f"'{t.replace('\'', '\'\'')}'" for t in term_info['related_terms']])
+                    cursor.execute(f"SELECT term, definition FROM terms WHERE term IN ({terms_list}) LIMIT 5;")
+                    related = cursor.fetchall()
                     
-                    if related_results:
-                        answer += f"\n\n[관련 용어]\n"
-                        for row in related_results:
-                            answer += f"- {row['term']}: {row['definition'][:50]}...\n"
+                    if related:
+                        answer += "\n\n[관련 용어]\n"
+                        for term, definition in related:
+                            answer += f"- {term}: {definition[:50]}...\n"
                 
                 return answer
                 
     except Exception as e:
         print(f"[TERM] 오류: {e}")
-        import traceback
-        traceback.print_exc()
         return f"검색 중 오류가 발생했습니다: {str(e)}"
