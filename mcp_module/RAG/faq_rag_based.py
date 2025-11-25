@@ -139,6 +139,7 @@ def load_faq_embeddings() -> Dict[str, Any]:
     임베딩 생성 전략:
         - FAQ 질문 텍스트를 기본으로 사용
         - 상위 10개 키워드를 추가하여 검색 정확도 향상
+        - 상위 5개 사용자 표현을 추가하여 실제 말투 패턴 학습
         - 정규화(normalize)하여 코사인 유사도 계산 최적화
     
     Returns:
@@ -164,7 +165,7 @@ def load_faq_embeddings() -> Dict[str, Any]:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("""
                     SELECT f.faq_id, f.question, f.answer, 
-                           f.normalized_keywords, c.category_name
+                           f.normalized_keywords, f.user_expressions, c.category_name
                     FROM faqs f
                     JOIN faq_categories c ON f.category_id = c.category_id
                     ORDER BY f.faq_id;
@@ -176,13 +177,16 @@ def load_faq_embeddings() -> Dict[str, Any]:
         
         model = get_embedding_model()
         
-        # 질문 + 키워드 결합 텍스트 생성
+        # 질문 + 키워드 + 사용자 표현 결합 텍스트 생성
         texts = []
         for faq in faqs:
             text = faq['question']
-            # 상위 10개 키워드만 사용하여 노이즈 감소
+            # 상위 10개 키워드 추가 (노이즈 감소)
             if faq['normalized_keywords']:
                 text += ' ' + ' '.join(faq['normalized_keywords'][:10])
+            # 상위 5개 사용자 표현 추가 (실제 사용자 말투 학습)
+            if faq['user_expressions']:
+                text += ' ' + ' '.join(faq['user_expressions'][:5])
             texts.append(text)
         
         # 임베딩 생성 (정규화 포함)
