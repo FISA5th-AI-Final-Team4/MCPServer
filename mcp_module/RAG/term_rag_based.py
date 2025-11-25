@@ -155,7 +155,7 @@ def search_term(term_query: str) -> str:
                 
                 # 관련 용어
                 if term_info['related_terms']:
-                    terms_list = ','.join([f"'{t.replace('\'', '\'\'')}'" for t in term_info['related_terms']])
+                    terms_list = ','.join([f"'{t.replace('\'', '\'\'')}" for t in term_info['related_terms']])
                     cursor.execute(f"SELECT term, definition FROM terms WHERE term IN ({terms_list}) LIMIT 5;")
                     related = cursor.fetchall()
                     
@@ -163,6 +163,14 @@ def search_term(term_query: str) -> str:
                         answer += "\n\n[관련 용어]\n"
                         for term, definition in related:
                             answer += f"- {term}: {definition[:50]}...\n"
+                
+                # views 카운트 증가
+                cursor.execute(
+                    "UPDATE terms SET views = views + 1 WHERE term_id = %s;",
+                    (term_info['term_id'],)
+                )
+                conn.commit()
+                print(f"[TERM] views 증가: term_id={term_info['term_id']}")
                 
                 return answer
                 

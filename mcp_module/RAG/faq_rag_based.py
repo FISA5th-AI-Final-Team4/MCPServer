@@ -487,6 +487,20 @@ def search_faq(question: str, top_k: int = 3, top_k_retrieval: int = 15) -> Dict
         
         # 최상위 FAQ 반환
         best = top_faqs[0]
+        
+        # views 카운트 증가
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE faqs SET views = views + 1 WHERE faq_id = %s;",
+                        (best['faq_id'],)
+                    )
+                    conn.commit()
+                    print(f"[FAQ] views 증가: faq_id={best['faq_id']}")
+        except Exception as e:
+            print(f"[FAQ] views 업데이트 오류: {e}")
+        
         return {
             "answer": f"[{best['category_name']}]\n\n질문: {best['question']}\n\n답변: {best['answer']}",
             "relatedQuestions": [faq['question'] for faq in top_faqs[1:]]
