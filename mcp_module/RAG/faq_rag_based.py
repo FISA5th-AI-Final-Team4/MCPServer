@@ -1,18 +1,23 @@
 """
-FAQ 의미 기반 검색 모듈
+FAQ 의미 기반 검색 모듈 (2단계 Re-ranking)
 
-이 모듈은 Jina Embeddings v3를 사용하여 사용자 질문과 FAQ 데이터베이스 간의 
-의미적 유사도를 계산하고 가장 관련성 높은 FAQ를 반환합니다.
+이 모듈은 Bi-Encoder + Cross-Encoder 2단계 검색을 사용하여 
+사용자 질문과 FAQ 데이터베이스 간의 정확한 매칭을 수행합니다.
 
+검색 프로세스:
+    1단계 (Bi-Encoder): Jina v3로 빠른 후보 추출 (top 15)
+    2단계 (Cross-Encoder): BGE Reranker로 정밀 재랭킹 (top 3)
+    
 주요 기능:
-    - FAQ 임베딩 캐싱으로 빠른 검색 속도 (서버 시작 시 1회)
-    - 질문 + 키워드 결합으로 검색 정확도 향상
-    - 코사인 유사도 기반 의미 검색
+    - FAQ 임베딩 캐싱으로 빠른 1단계 검색
+    - Cross-Encoder로 정확도 향상
+    - 2단계 파이프라인으로 속도와 정확도 균형
     
 성능:
-    - 모델: jinaai/jina-embeddings-v3 (다국어 지원, 8192 토큰)
-    - 평균 응답시간: ~300ms (캐시 로드 후)
-    - 정확도: 73% (37개 실제 사용자 질문 테스트)
+    - Bi-Encoder: jinaai/jina-embeddings-v3 (다국어)
+    - Cross-Encoder: BAAI/bge-reranker-v2-m3 (다국어)
+    - 예상 응답시간: ~1초
+    - 예상 정확도: 85-90%
 """
 
 import re
@@ -20,10 +25,11 @@ import time
 from contextlib import contextmanager
 from typing import Any, Dict, List, Set
 
+import numpy as np
 import psycopg2
 import torch
 from psycopg2.extras import RealDictCursor
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer, CrossEncoder, util
 
 from core.config import settings
 
@@ -32,7 +38,8 @@ from core.config import settings
 # 전역 캐시 변수
 # ============================================================================
 
-_embedding_model: SentenceTransformer = None  # Jina v3 임베딩 모델
+_embedding_model: SentenceTransformer = None  # Jina v3 Bi-Encoder
+_cross_encoder: CrossEncoder = None           # BGE Reranker v2-m3
 _synonym_cache: Dict[str, List[str]] = None   # 동의어 매핑 캐시
 _faq_embeddings_cache: torch.Tensor = None    # FAQ 임베딩 벡터 캐시
 _faq_data_cache: List[Dict[str, Any]] = None  # FAQ 메타데이터 캐시
@@ -91,23 +98,45 @@ def normalize_text(text: str) -> str:
 
 def get_embedding_model() -> SentenceTransformer:
     """
-    Jina Embeddings v3 모델을 로드합니다 (Lazy Loading).
+    Jina Embeddings v3 Bi-Encoder 모델을 로드합니다 (Lazy Loading).
     
-    첫 호출 시에만 모델을 로드하고, 이후에는 캐시된 모델을 반환합니다.
+    1단계 검색에서 사용되며, 빠른 후보 추출을 담당합니다.
     
     Returns:
         SentenceTransformer: Jina v3 임베딩 모델
     """
     global _embedding_model
     if _embedding_model is None:
-        print("[FAQ] 임베딩 모델 로드 중...")
+        print("[FAQ] Bi-Encoder 로드 중...")
         _embedding_model = SentenceTransformer(
             'jinaai/jina-embeddings-v3',
             device=settings.DEVICE,
             trust_remote_code=True
         )
-        print(f"[FAQ] 임베딩 모델 로드 완료 (Device: {settings.DEVICE})")
+        print(f"[FAQ] Bi-Encoder 로드 완료 (Device: {settings.DEVICE})")
     return _embedding_model
+
+
+def get_cross_encoder() -> CrossEncoder:
+    """
+    BGE Reranker v2-m3 Cross-Encoder 모델을 로드합니다 (Lazy Loading).
+    
+    2단계 재랭킹에서 사용되며, 정밀한 관련도 점수를 계산합니다.
+    다국어 지원으로 한국어 질문-FAQ 쌍의 관련도를 정확히 평가합니다.
+    
+    Returns:
+        CrossEncoder: BGE Reranker v2-m3 모델
+    """
+    global _cross_encoder
+    if _cross_encoder is None:
+        print("[FAQ] Cross-Encoder 로드 중...")
+        _cross_encoder = CrossEncoder(
+            'BAAI/bge-reranker-v2-m3',
+            device=settings.DEVICE,
+            max_length=512
+        )
+        print(f"[FAQ] Cross-Encoder 로드 완료 (Device: {settings.DEVICE})")
+    return _cross_encoder
 
 
 def load_synonyms() -> Dict[str, List[str]]:
@@ -329,22 +358,25 @@ def filter_faqs_by_keywords(question: str) -> List[Dict[str, Any]]:
 # 메인 검색 함수
 # ============================================================================
 
-def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
+def search_faq(question: str, top_k: int = 3, top_k_retrieval: int = 15) -> Dict[str, Any]:
     """
-    사용자 질문에 대해 가장 관련성 높은 FAQ를 검색합니다.
+    사용자 질문에 대해 가장 관련성 높은 FAQ를 2단계 Re-ranking으로 검색합니다.
     
-    Jina Embeddings v3를 사용한 의미 기반 검색으로 질문의 의도를 파악하고
-    코사인 유사도가 가장 높은 FAQ를 반환합니다.
+    Stage 1 (Bi-Encoder): Jina v3로 전체 FAQ에서 빠르게 상위 15개 후보 추출
+    Stage 2 (Cross-Encoder): BGE Reranker로 15개 후보의 정밀한 관련도 점수 계산 후 상위 3개 선택
     
     프로세스:
-        1. 질문 임베딩 생성
-        2. 모든 FAQ와 코사인 유사도 계산
-        3. 상위 K개 FAQ 선택
-        4. 결과 포맷팅 및 반환
+        1. [Bi-Encoder] 질문 임베딩 생성 (Jina v3)
+        2. [Bi-Encoder] 47개 FAQ와 코사인 유사도 계산
+        3. [Bi-Encoder] 상위 15개 후보 추출 (~300ms)
+        4. [Cross-Encoder] 15개 [질문, FAQ] 쌍의 관련도 점수 계산 (~700ms)
+        5. [Cross-Encoder] 점수 기준 상위 3개 최종 선택
+        6. 결과 포맷팅 및 반환
     
     Args:
         question: 사용자의 자연어 질문
-        top_k: 반환할 FAQ 개수 (기본값: 3)
+        top_k: 최종 반환할 FAQ 개수 (기본값: 3)
+        top_k_retrieval: Bi-Encoder로 추출할 후보 개수 (기본값: 15)
     
     Returns:
         Dict[str, Any]: {
@@ -360,14 +392,19 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
         }
         
     Note:
-        - 평균 응답시간: ~300ms (캐시 로드 후)
-        - 첫 실행: ~25초 (모델 로드 + FAQ 임베딩)
-        - 정확도: 73% (실제 사용자 질문 37개 테스트 기준)
+        - 평균 응답시간: ~1초 (Bi-Encoder 300ms + Cross-Encoder 700ms)
+        - 첫 실행: ~30초 (Bi-Encoder + Cross-Encoder 모델 로드)
+        - 예상 정확도: 85-90% (Cross-Encoder re-ranking 적용)
+        - 이전 정확도: 73% (Bi-Encoder 단독, 37개 테스트 기준)
     """
-    print(f"\n[FAQ] 검색: '{question}'\n" + "=" * 80)
+    print(f"\n[FAQ] 2단계 검색 시작: '{question}'\n" + "=" * 80)
     start_time = time.time()
     
     try:
+        # ========== Stage 1: Bi-Encoder 후보 추출 ==========
+        print("[Stage 1] Bi-Encoder 후보 추출 중...")
+        stage1_start = time.time()
+        
         # 캐시된 FAQ 임베딩 로드
         cache = load_faq_embeddings()
         embeddings = cache['embeddings']
@@ -379,35 +416,73 @@ def search_faq(question: str, top_k: int = 3) -> Dict[str, Any]:
                 "relatedQuestions": []
             }
         
-        model = get_embedding_model()
+        bi_encoder = get_embedding_model()
         
         # 사용자 질문 임베딩 생성
-        q_embed = model.encode(
+        q_embed = bi_encoder.encode(
             question,
             convert_to_tensor=True,
             normalize_embeddings=True,
             show_progress_bar=False
         )
         
-        # 코사인 유사도 계산 및 상위 K개 선택
-        search_start = time.time()
+        # 코사인 유사도 계산 및 상위 K개 후보 추출
         similarities = util.cos_sim(q_embed, embeddings)[0]
-        top_indices = torch.topk(similarities, k=min(top_k, len(faqs)))[1]
-        search_elapsed = (time.time() - search_start) * 1000
-        print(f"[FAQ] 검색 완료: {search_elapsed:.1f}ms")
+        top_retrieval_indices = torch.topk(
+            similarities, 
+            k=min(top_k_retrieval, len(faqs))
+        )[1]
         
-        # 결과 FAQ 구성
+        # 후보 FAQ 리스트 구성
+        candidates = []
+        for idx in top_retrieval_indices:
+            faq = faqs[idx.item()]
+            candidates.append({
+                'faq': faq,
+                'bi_score': similarities[idx].item()
+            })
+        
+        stage1_elapsed = (time.time() - stage1_start) * 1000
+        print(f"[Stage 1] 완료: {len(candidates)}개 후보 추출 ({stage1_elapsed:.1f}ms)")
+        
+        # ========== Stage 2: Cross-Encoder Re-ranking ==========
+        print("[Stage 2] Cross-Encoder Re-ranking 중...")
+        stage2_start = time.time()
+        
+        cross_encoder = get_cross_encoder()
+        
+        # [질문, FAQ 질문] 쌍 생성
+        pairs = [[question, c['faq']['question']] for c in candidates]
+        
+        # Cross-Encoder로 정밀한 관련도 점수 계산
+        cross_scores = cross_encoder.predict(pairs, show_progress_bar=False)
+        
+        # 점수 기준 내림차순 정렬 후 상위 K개 선택
+        sorted_indices = np.argsort(cross_scores)[::-1]
+        top_indices = sorted_indices[:min(top_k, len(candidates))]
+        
+        stage2_elapsed = (time.time() - stage2_start) * 1000
+        print(f"[Stage 2] 완료: 최종 {len(top_indices)}개 선택 ({stage2_elapsed:.1f}ms)")
+        
+        # ========== 결과 구성 ==========
+        # Cross-Encoder 점수 기준 정렬된 최종 FAQ 리스트
         top_faqs = []
-        for idx in top_indices:
-            faq = faqs[idx.item()].copy()
-            faq['score'] = similarities[idx].item()
+        for rank_idx, candidate_idx in enumerate(top_indices):
+            faq = candidates[candidate_idx]['faq'].copy()
+            faq['bi_score'] = candidates[candidate_idx]['bi_score']
+            faq['cross_score'] = float(cross_scores[candidate_idx])
+            faq['final_rank'] = rank_idx + 1
             top_faqs.append(faq)
         
-        # 로깅
+        # 로깅: 전체 소요 시간 및 각 FAQ 점수
         total_elapsed = (time.time() - start_time) * 1000
-        print(f"[FAQ] 총 시간: {total_elapsed:.1f}ms")
-        for i, faq in enumerate(top_faqs, 1):
-            print(f"[FAQ] #{i}: {faq['question'][:50]}... (점수: {faq['score']:.3f})")
+        print(f"\n[FAQ] 총 소요 시간: {total_elapsed:.1f}ms")
+        print(f"  - Stage 1 (Bi-Encoder): {stage1_elapsed:.1f}ms")
+        print(f"  - Stage 2 (Cross-Encoder): {stage2_elapsed:.1f}ms")
+        print("\n[최종 결과]")
+        for faq in top_faqs:
+            print(f"  #{faq['final_rank']}: {faq['question'][:50]}...")
+            print(f"    → Bi-Encoder: {faq['bi_score']:.3f}, Cross-Encoder: {faq['cross_score']:.3f}")
         print("=" * 80)
         
         # 최상위 FAQ 반환
