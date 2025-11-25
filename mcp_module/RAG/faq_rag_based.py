@@ -159,12 +159,12 @@ def load_faq_embeddings() -> Dict[str, Any]:
     
     start = time.time()
     try:
-        # DB에서 FAQ 데이터 로드
+        # DB에서 FAQ 데이터 로드 (필수 필드만 조회)
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("""
-                    SELECT f.faq_id, f.question, f.answer, f.normalized_keywords, 
-                           f.user_expressions, c.category_name, f.priority
+                    SELECT f.faq_id, f.question, f.answer, 
+                           f.normalized_keywords, c.category_name
                     FROM faqs f
                     JOIN faq_categories c ON f.category_id = c.category_id
                     ORDER BY f.faq_id;
