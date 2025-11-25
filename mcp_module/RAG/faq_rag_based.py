@@ -91,7 +91,7 @@ def load_faq_embeddings() -> Dict[str, Any]:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("""
-                    SELECT f.faq_id, f.question, f.answer, c.category_name, f.priority
+                    SELECT f.faq_id, f.question, f.answer, f.search_text, c.category_name, f.priority
                     FROM faqs f
                     JOIN faq_categories c ON f.category_id = c.category_id
                     ORDER BY f.faq_id;
@@ -103,7 +103,7 @@ def load_faq_embeddings() -> Dict[str, Any]:
         
         model = get_embedding_model()
         embeddings = model.encode(
-            [faq['question'] for faq in faqs],
+            [faq['search_text'] for faq in faqs],
             convert_to_numpy=True,
             normalize_embeddings=True,
             show_progress_bar=False
