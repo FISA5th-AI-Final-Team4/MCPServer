@@ -155,8 +155,11 @@ def search_term(term_query: str) -> str:
                 
                 # 관련 용어
                 if term_info['related_terms']:
-                    terms_list = ','.join([f"'{t.replace('\'', '\'\'')}" for t in term_info['related_terms']])
-                    cursor.execute(f"SELECT term, definition FROM terms WHERE term IN ({terms_list}) LIMIT 5;")
+                    placeholders = ','.join(['%s'] * len(term_info['related_terms']))
+                    cursor.execute(
+                        f"SELECT term, definition FROM terms WHERE term IN ({placeholders}) LIMIT 5;",
+                        tuple(term_info['related_terms'])
+                    )
                     related = cursor.fetchall()
                     
                     if related:
