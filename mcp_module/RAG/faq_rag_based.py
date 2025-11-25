@@ -159,7 +159,7 @@ def load_faq_embeddings() -> Dict[str, Any]:
     
     start = time.time()
     try:
-        # DB에서 FAQ 데이터 로드 (필수 필드만 조회)
+        # DB에서 FAQ 데이터 로드 
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("""
