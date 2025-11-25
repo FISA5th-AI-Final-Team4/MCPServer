@@ -75,7 +75,7 @@ async def faq_query(request: FAQRequest):
         
         print(f"[API] FAQ 검색 완료\n")
         
-        return {"answer": answer}
+        return answer
         
     except Exception as e:
         print(f"[API 오류] {str(e)}")
