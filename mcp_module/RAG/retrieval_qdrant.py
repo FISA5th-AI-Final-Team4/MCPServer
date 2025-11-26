@@ -1,5 +1,4 @@
 from FlagEmbedding import BGEM3FlagModel # 임베딩 모델 
-from sentence_transformers import CrossEncoder # Reranker 모델
 from qdrant_client import QdrantClient # Qdrant 클라이언트
 from qdrant_client.models import (
     Filter, FieldCondition, MatchValue, MatchAny,
@@ -44,13 +43,6 @@ canonical_vectors = embedding_model.encode(
 canonical_card_vectors = {
     name: vec for name, vec in zip(canonical_names, canonical_vectors)
 }
-
-# Reranker 모델 로드
-reranker = CrossEncoder(
-    model_name="BAAI/bge-reranker-base",
-    max_length=512,
-    device=settings.DEVICE
-)
 
 def encode_query(embed_model: BGEM3FlagModel, text: str) -> Tuple[List[float], SparseVector]:
     """
@@ -119,17 +111,15 @@ def smart_filter_router(query: str, query_dense_vec: List, threshold=0.5) -> Fil
 
 def hybrid_search(query: str, topk: int=10,) -> List[Tuple[str, float, Any]]:
     """
-    하이브리드 검색 함수 (스마트 필터 + Reranker 사용)
+    하이브리드 검색 함수 (Dense + Sparse 후보군 합산, 리랭킹 제거)
     Args:
-        - client: QdrantClient 인스턴스
-        - target_collection: 검색 대상 Qdrant 컬렉션 이름
-        - reranker: 문서 재정렬용 CrossEncoder 인스턴스
         - query: 사용자 쿼리 문자열
-        - topk: 최종 반환할 상위 문서 수
+        - topk: 검색할 문서 수 (Dense, Sparse 각각 적용)
     Returns:
-        - List of (doc_id, rerank_score, point) 튜플 리스트
+        - List of (doc_id, score, point) 튜플 리스트 (모든 후보군 반환)
     """
-    global qdrant_connection, COL, embedding_model, reranker
+    global qdrant_connection, COL, embedding_model
+    
     # 1. 쿼리 인코딩
     q_dense, q_sparse = encode_query(embedding_model, query)
     print(f"\n[Debug] 쿼리 임베딩 완료. (Dense vector length: {len(q_dense)}, Sparse vector non-zero count: {len(q_sparse.indices)})")
@@ -138,12 +128,12 @@ def hybrid_search(query: str, topk: int=10,) -> List[Tuple[str, float, Any]]:
     query_filter = smart_filter_router(query, q_dense)
     print(f"[Debug] 스마트 필터 생성 완료: {query_filter}")
 
-    # 3. 1차 검색 (후보군 수집) - 필터 적용
+    # 3. Dense + Sparse 검색 (필터 적용)
     dres = qdrant_connection.search(
         collection_name=COL,
         query_vector=q_dense,
         query_filter=query_filter,
-        limit=topk*3
+        limit=topk
     )
     sres = qdrant_connection.search(
         collection_name=COL,
@@ -155,47 +145,29 @@ def hybrid_search(query: str, topk: int=10,) -> List[Tuple[str, float, Any]]:
             )
         ),
         query_filter=query_filter,
-        limit=topk*3
+        limit=topk
     )
-    print(f"[Debug] 1차 검색 완료. (Dense hits: {len(dres)}, Sparse hits: {len(sres)})")
+    print(f"[Debug] 검색 완료. (Dense hits: {len(dres)}, Sparse hits: {len(sres)})")
 
-    # 4. 후보군 ID 취합
-    candidate_ids = set()
-    for r in dres: candidate_ids.add(r.id)
-    for r in sres: candidate_ids.add(r.id)
-    if not candidate_ids: return []
-
-    # 5. 후보군 원본 텍스트 Retrieve
-    candidate_points = qdrant_connection.retrieve(
-        collection_name=COL, ids=list(candidate_ids),
-        with_payload=True
-    )
-    print(f"[Debug] 후보군 원본 텍스트 조회 완료. (총 {len(candidate_points)}개 문서)")
-
-    # 6. Reranker 입력 생성
-    rerank_pairs = []
-    print(f"\n[Debug] Reranking {len(candidate_points)} candidates for query: '{query}'")
-    for pt in candidate_points:
-        # [중요] payload의 'full_text'를 사용 (적재 스크립트에서 저장 필수)
-        doc_text = pt.payload.get('full_text', '')
-        if not doc_text:
-             print(f"[Warning] Doc ID {pt.id} is missing 'full_text'. Falling back to 'preview'.")
-             doc_text = pt.payload.get('preview', '') # ⬅️ 비상시 preview 사용
-        rerank_pairs.append( (query, doc_text) )
-    print(f"[Debug] Reranker 입력 쌍 생성 완료.")
-
-    # 7. Reranking 실행
-    rerank_scores = reranker.predict(rerank_pairs)
-    print(f"[Debug] Reranking 완료.")
-
-    # 8. 최종 결과 정렬
-    reranked_results = []
-    for score, pt in zip(rerank_scores, candidate_points):
-        reranked_results.append( (pt.id, score, pt) )
-    print(f"[Debug] 최종 결과 정렬 완료. Top-{topk} 문서 반환 준비.")
-
-    reranked_results.sort(key=lambda x: x[1], reverse=True) # ⬅️ Reranker 점수로 정렬
-    return reranked_results[:topk]
+    # 4. 후보군 합산 (ID 기준 중복 제거)
+    seen_ids = set()
+    results = []
+    
+    # Dense 결과 추가
+    for r in dres:
+        if r.id not in seen_ids:
+            results.append((r.id, r.score, r))
+            seen_ids.add(r.id)
+    
+    # Sparse 결과 추가
+    for r in sres:
+        if r.id not in seen_ids:
+            results.append((r.id, r.score, r))
+            seen_ids.add(r.id)
+    
+    print(f"[Debug] 후보군 합산 완료. (총 {len(results)}개 문서, 리랭킹 없이 모두 반환)")
+    
+    return results
 
 def print_rag_documents(docs: List[Document]) -> None:
     """ RAG 디버깅 용 출력 함수 """
@@ -339,90 +311,48 @@ def get_card_description(query: str, top_k: int = 6) -> dict:
     generation_llm = ChatOllama(
         model=settings.OLLAMA_MODEL_NAME,
         base_url=settings.OLLAMA_BASE_URL,
-        temperature=0
+        temperature=0,
     )
     
-    # 7. 챗봇 UI 최적화 프롬프트
-    template = """당신은 우리카드 AI 상담사입니다. 사용자의 질문에 친절하고 정확하게 답변하세요.
+    # 7. Qwen 1.7B 경량 모델 최적화 프롬프트
+    template = """당신은 우리카드 상담 AI입니다.
 
-# 답변 형식 (질문 유형별)
+아래 카드 정보를 바탕으로 질문에 답변하세요.
+정보에 없으면 "정보 없음"이라고 답하세요.
 
-## 1️⃣ 간단한 정보 질문 (연회비, 혜택률 등)
-→ 간결하게 1-2문장으로 핵심만 전달
-예: "우리카드 7CORE의 연회비는 50,000원입니다."
+예시 1 - 연회비 질문:
+질문: 연회비 얼마야?
+답변: 💳 연회비는 50,000원입니다.
 
-## 2️⃣ 카드 요약 요청
-→ 구조화된 요약 제공
-```
-💳 [카드명]
+예시 2 - 혜택 요약:
+질문: 혜택 요약해줘
+답변: 📌 주요혜택
+• 7대영역 10% 할인
+• 기본 0.8% 적립
 
-📌 핵심 특징
-• 주요 혜택 1
-• 주요 혜택 2
-• 주요 혜택 3
+💰 연회비: 50,000원
 
-💰 비용
-• 연회비: XX원
-• 전월실적: XX원 이상
+예시 3 - 카드 비교:
+질문: A와 B 비교해줘
+답변: 📊 카드 비교
 
-⚠️ 주의사항
-• 유의사항 1
-• 유의사항 2
-```
-
-## 3️⃣ 여러 카드 비교 요청
-→ 비교표 형식으로 제공
-```
-📊 카드 비교
-
-🔵 [카드1]
-• 연회비: XX원
-• 핵심혜택: ...
-• 적합대상: ...
-
-🟢 [카드2]
-• 연회비: XX원
-• 핵심혜택: ...
-• 적합대상: ...
+| 구분 | A | B |
+|---|---|---|
+| 연회비 | 50,000원 | 12,000원 |
+| 혜택 | 10% 할인 | 2% 적립 |
 
 💡 추천
-- [카드1]은 ~한 분께 추천
-- [카드2]는 ~한 분께 추천
-```
+• A: 생활전반 할인 원하는 분
+• B: 온라인쇼핑 많은 분
 
-## 4️⃣ 상세 설명 요청
-→ 섹션별로 구분하여 상세 설명
-```
-📋 [카드명] 상세 정보
+---
 
-🎁 혜택
-• 혜택 1: 상세 설명
-• 혜택 2: 상세 설명
-
-💵 연회비 및 실적
-• 연회비: ...
-• 전월실적 조건: ...
-
-📝 이용 안내
-• 주의사항 1
-• 주의사항 2
-```
-
-# 답변 규칙
-✅ Context 정보만 사용 (없으면 "제공되지 않음" 표기)
-✅ 구체적인 수치 명시 (연회비, 할인율, 한도 등)
-✅ 챗봇 UI에 보기 좋게 줄바꿈과 이모지 활용
-✅ 카드명은 정확히 표기
-✅ 전문 용어는 쉽게 풀어서 설명
-
-# 카드 정보 (Context)
+카드 정보:
 {context}
 
-# 사용자 질문
-{question}
+질문: {question}
 
-# 답변
-"""
+답변:"""
     
     prompt = ChatPromptTemplate.from_template(template)
     
