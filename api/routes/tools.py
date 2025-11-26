@@ -1,11 +1,17 @@
 from fastapi import APIRouter, HTTPException
 
+from langchain_core.runnables import RunnableConfig
+
 from mcp_module.RAG.faq_rag_based import search_faq
 from mcp_module.RAG.retrieval_qdrant import card_desc_hybrid_search_generation
 from mcp_module.RAG.term_rag_based import search_term
+from mcp_module.RAG.mydata_based import tabular_recommendation
 from schemas.card_recommendation import CardRecommendationRequest
 from schemas.qna import FAQRequest, TermRequest
-
+from schemas.tabular_recommand import (
+    ConsumptionRecommandRequest,
+    ConsumptionRecommandResponse
+)
 
 router = APIRouter(prefix="/tools", tags=["mcp-tools"])
 
@@ -113,6 +119,39 @@ async def term_query(request: TermRequest):
         raise HTTPException(
             status_code=500,
             detail=f"용어 검색 중 오류: {str(e)}"
+        )
+
+
+@router.post(
+    "/consumption_recommend",
+    summary="소비패턴 기반 카드 추천",
+    description="사용자의 소비패턴을 분석하여 맞춤형 카드를 추천합니다.",
+    operation_id="consumption_recommend"
+)
+async def consumption_recommend(req: ConsumptionRecommandRequest):
+    """
+    소비패턴 기반 카드 추천
+    
+    사용자의 소비 데이터를 분석하여 최적의 카드를 추천합니다.
+    """
+    
+    try:
+        print(f"\n[API] 소비패턴 기반 카드 추천 요청: 세션ID={req.session_id}")
+        answer, login_required, card_list = await tabular_recommendation(
+            session_id=req.session_id
+        )
+
+        return {
+            "answer": answer,
+            "login_required": login_required,
+            "card_list": card_list
+        }
+
+    except Exception as e:
+        print(f"[API 오류] {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"소비패턴 기반 카드 추천 중 오류: {str(e)}"
         )
 
 

@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # GPU 사용 가능 여부
     DEVICE: str = "cuda" if cuda_is_available() else "cpu"
     
+    # 백엔드 서버 주소
+    BACKEND_SERVER_URL: str
+
     @property
     def POSTGRES_PASSWORD(self) -> str:
         """POSTGRES_PASSWORD를 PostgreSQL 비밀번호로 사용"""
