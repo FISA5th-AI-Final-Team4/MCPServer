@@ -250,42 +250,6 @@ def format_docs(docs: List[Document]) -> str:
         for doc in docs
     )
 
-def card_desc_hybrid_search_generation(query: str) -> str:
-    # 답변 생성용 LLM 인스턴스 생성
-    generation_llm = ChatOllama(
-        model=settings.OLLAMA_MODEL_NAME,
-        base_url=settings.OLLAMA_BASE_URL,
-        temperature=0
-    )
-    
-    # 커스텀 하이브리드 리트리버 인스턴스 생성
-    retriever = CustomHybridRetriever(search_func=hybrid_search, top_k=6)
-
-    # RAG 프롬프트 정의
-    template = """당신은 '우리카드' 상품 전문 AI 상담사입니다.
-오직 주어진 'Context' 정보만을 바탕으로 사용자의 'Question'에 대해 답변해야 합니다.
-Context에 없는 내용은 절대 지어내지 말고, "정보를 찾을 수 없습니다."라고 답변하세요.
-
-Context:
-{context}
-
-Question:
-{question}
-
-Answer:
-"""
-    prompt = ChatPromptTemplate.from_template(template)
-
-    # 랭체인 파이프라인 LCEL 조립
-    chain = (
-        {"context": retriever | format_docs, "question": RunnablePassthrough()}
-        | prompt
-        | generation_llm
-        | StrOutputParser()
-    )
-
-    return chain.invoke(query)
-
 
 def get_card_description(query: str, top_k: int = 6) -> dict:
     """

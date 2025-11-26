@@ -21,41 +21,27 @@ router = APIRouter(prefix="/tools", tags=["mcp-tools"])
 # 엔드포인트
 # ============================================================================
 
-""" @router.post(
+@router.post(
     "/card-recommendation",
-    summary="카드 추천 RAG 파이프라인",
-    description="사용자 질문을 받아 RAG 파이프라인을 실행하여 카드를 추천합니다.",
+    summary="카드 추천 RAG 파이프라인 (개발 중)",
+    description="사용자 질문을 받아 RAG 파이프라인을 실행하여 카드를 추천합니다. (현재 구현 중)",
     operation_id="get_card_recommendation"
 )
 async def card_recommendation(request: CardRecommendationRequest):
     """
-    카드 추천 RAG 파이프라인 실행
+    카드 추천 RAG 파이프라인 실행 (구현 중)
     
     LLM 서버에서 쿼리 라우팅을 통해 호출되며,
     벡터 DB 검색 → 컨텍스트 선정 → 최종 답변 생성을 수행합니다.
+    
+    TODO: 카드 추천 로직 구현 예정
     """
     
-    try:
-        print(f"\n[API] 카드 추천 요청: {request.query}")
-        
-        answer = card_desc_hybrid_search_generation(request.query)
-        
-        print(f"[API] 카드 추천 완료\n")
-        
-        return {"answer": answer}
-        
-    except FileNotFoundError as e:
-        raise HTTPException(
-            status_code=404,
-            detail=f"벡터 DB를 찾을 수 없습니다: {str(e)}"
-        )
-        
-    except Exception as e:
-        print(f"[API 오류] {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"카드 추천 실행 중 오류: {str(e)}"
-        ) """
+    # TODO: 구현 예정
+    raise HTTPException(
+        status_code=501,
+        detail="카드 추천 기능은 현재 구현 중입니다."
+    )
 
 
 @router.post(
