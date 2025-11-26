@@ -378,6 +378,7 @@ def get_card_description(query: str, top_k: int = 6) -> dict:
 
 # 답변
     
+"""
     prompt = ChatPromptTemplate.from_template(template)
     
     # 8. 기존 format_docs 함수 활용
