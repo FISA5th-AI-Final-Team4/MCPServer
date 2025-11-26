@@ -24,10 +24,18 @@ from core.qdrant_upsert_utils import _to_list, _extract_sparse
 from core.config import settings
 
 # 카드 별칭 정의 맵 로드
+# 새로운 구조: {"카드ID": ["별칭1", "별칭2", ...]}
 with open("./data/alias_map.json", "r", encoding="utf-8") as f:
-    CARD_ALIAS_TO_CANONICAL = json.load(f)
+    CARD_ID_TO_ALIASES = json.load(f)
 
-canonical_names = list(set(CARD_ALIAS_TO_CANONICAL.values()))
+# 역방향 매핑 생성: {"별칭": "카드ID"}
+ALIAS_TO_CARD_ID = {}
+for card_id, aliases in CARD_ID_TO_ALIASES.items():
+    for alias in aliases:
+        ALIAS_TO_CARD_ID[alias] = card_id
+
+# 카드 ID 리스트 및 임베딩
+canonical_names = list(CARD_ID_TO_ALIASES.keys())
 canonical_vectors = embedding_model.encode(
     canonical_names,
     return_dense=True,
@@ -73,21 +81,21 @@ def smart_filter_router(query: str, query_dense_vec: List, threshold=0.5) -> Fil
     """
 
     # --- 1단계: 빠른 키워드/별칭 검색 (MatchAny) ---
-    found_canonical_names = set()
-    sorted_aliases = sorted(CARD_ALIAS_TO_CANONICAL.keys(), key=len, reverse=True)
+    found_card_ids = set()
+    sorted_aliases = sorted(ALIAS_TO_CARD_ID.keys(), key=len, reverse=True)
     temp_query = query
 
     for alias in sorted_aliases:
-        # 별칭이 쿼리에 포함되어 있다면 올바른 명칭으로 대체
+        # 별칭이 쿼리에 포함되어 있다면 올바른 카드 ID로 매핑
         if alias in temp_query:
-            canonical_name = CARD_ALIAS_TO_CANONICAL[alias]
-            found_canonical_names.add(canonical_name)
+            card_id = ALIAS_TO_CARD_ID[alias]
+            found_card_ids.add(card_id)
             temp_query = temp_query.replace(alias, "")
 
-    if found_canonical_names:
-        names_list = list(found_canonical_names)
-        print(f"[Debug] (Step 1: Keyword) {len(names_list)}개 카드명 감지. 'card_id' IN {names_list} 필터 적용.")
-        return Filter(must=[FieldCondition(key="card_id", match=MatchAny(any=names_list))])
+    if found_card_ids:
+        card_ids_list = list(found_card_ids)
+        print(f"[Debug] (Step 1: Keyword) {len(card_ids_list)}개 카드명 감지. 'card_id' IN {card_ids_list} 필터 적용.")
+        return Filter(must=[FieldCondition(key="card_id", match=MatchAny(any=card_ids_list))])
 
     # --- 2단계: 유사도 기반 재시도 (1단계 실패 시) ---
     print("[Debug] (Step 1: Keyword) 감지 실패. (Step 2: Similarity) 실행...")
@@ -281,27 +289,28 @@ def get_card_description(query: str, top_k: int = 6) -> dict:
         print("[카드 설명] 카드명을 인식할 수 없습니다.")
         return {
             'answer': "죄송합니다. 질문에서 카드명을 인식할 수 없습니다. 카드 이름을 명확히 말씀해 주세요. (예: '우리카드 7CORE', '카드의정석 every point' 등)",
-            'card_id': None
+            'card_ids': []
         }
     
-    # 3. 인식된 카드 ID 추출
-    recognized_card_id = None
+    # 3. 인식된 카드 ID 추출 (리스트로 변경)
+    recognized_card_ids = []
     if query_filter.must:
         condition = query_filter.must[0]
         if hasattr(condition.match, 'value'):
-            recognized_card_id = condition.match.value
+            recognized_card_ids = [condition.match.value]
         elif hasattr(condition.match, 'any'):
-            recognized_card_id = condition.match.any[0] if condition.match.any else None
+            recognized_card_ids = condition.match.any if condition.match.any else []
     
-    print(f"[카드 설명] 인식된 카드: {recognized_card_id}")
+    print(f"[카드 설명] 인식된 카드: {recognized_card_ids}")
     
     # 4. 기존 hybrid_search 함수 사용 (이미 필터 적용됨)
     results = hybrid_search(query, topk=top_k)
     
     if not results:
+        card_names_str = "', '".join(recognized_card_ids)
         return {
-            'answer': f"'{recognized_card_id}' 카드의 정보를 찾을 수 없습니다.",
-            'card_id': recognized_card_id
+            'answer': f"'{card_names_str}' 카드의 정보를 찾을 수 없습니다.",
+            'card_ids': recognized_card_ids
         }
     
     # 5. 기존 CustomHybridRetriever의 로직 활용 - Document 객체로 변환
@@ -428,5 +437,5 @@ def get_card_description(query: str, top_k: int = 6) -> dict:
     
     return {
         'answer': answer,
-        'card_id': recognized_card_id
+        'card_ids': recognized_card_ids
     }

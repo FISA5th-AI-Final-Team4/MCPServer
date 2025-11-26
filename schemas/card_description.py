@@ -3,7 +3,7 @@
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 
 
 class CardDescriptionRequest(BaseModel):
@@ -24,4 +24,4 @@ class CardDescriptionRequest(BaseModel):
 class CardDescriptionResponse(BaseModel):
     """카드 설명 응답"""
     answer: str = Field(..., description="생성된 카드 설명 답변")
-    card_id: Optional[str] = Field(None, description="인식된 카드 ID")
+    card_ids: list[str] = Field(default_factory=list, description="인식된 카드 ID 리스트")

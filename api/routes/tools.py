@@ -72,7 +72,7 @@ async def card_description(request: CardDescriptionRequest):
             top_k=request.top_k
         )
         
-        print(f"[API] 카드 설명 완료 (카드: {result.get('card_id')})\n")
+        print(f"[API] 카드 설명 완료 (카드: {result.get('card_ids')})\n")
         
         return result
         
