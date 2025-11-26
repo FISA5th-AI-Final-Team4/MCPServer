@@ -22,7 +22,14 @@ def _extract_sparse(out: dict) -> SparseVector:
     # 희소 벡터가 없는 경우 lexical_weights 이용
     if "lexical_weights" in out and out["lexical_weights"]:
         lw = out["lexical_weights"][0]
-        items = sorted((abs(hash(tok)) % (2**20), w) for tok, w in lw.items())
+        # 해시 충돌 방지: dict로 중복 인덱스 제거 (같은 인덱스는 값 합산)
+        index_map = {}
+        for tok, w in lw.items():
+            idx = abs(hash(tok)) % (2**20)
+            index_map[idx] = index_map.get(idx, 0.0) + w
+        
+        # 정렬 및 리스트 변환
+        items = sorted(index_map.items())
         if items:
             indices, values = zip(*items)
             return SparseVector(indices=list(indices), values=list(values))
