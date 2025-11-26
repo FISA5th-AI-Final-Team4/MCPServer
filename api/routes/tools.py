@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from langchain_core.runnables import RunnableConfig
 
 from mcp_module.RAG.faq_rag_based import search_faq
-from mcp_module.RAG.retrieval_qdrant import card_desc_hybrid_search_generation, get_card_description
+from mcp_module.RAG.retrieval_qdrant import get_card_description
 from mcp_module.RAG.term_rag_based import search_term
 from mcp_module.RAG.mydata_based import tabular_recommendation
 from schemas.card_recommendation import CardRecommendationRequest
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/tools", tags=["mcp-tools"])
 # 엔드포인트
 # ============================================================================
 
-@router.post(
+""" @router.post(
     "/card-recommendation",
     summary="카드 추천 RAG 파이프라인",
     description="사용자 질문을 받아 RAG 파이프라인을 실행하여 카드를 추천합니다.",
@@ -55,7 +55,7 @@ async def card_recommendation(request: CardRecommendationRequest):
         raise HTTPException(
             status_code=500,
             detail=f"카드 추천 실행 중 오류: {str(e)}"
-        )
+        ) """
 
 
 @router.post(
