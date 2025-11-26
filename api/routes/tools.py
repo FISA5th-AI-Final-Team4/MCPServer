@@ -3,10 +3,11 @@ from fastapi import APIRouter, HTTPException
 from langchain_core.runnables import RunnableConfig
 
 from mcp_module.RAG.faq_rag_based import search_faq
-from mcp_module.RAG.retrieval_qdrant import card_desc_hybrid_search_generation
+from mcp_module.RAG.retrieval_qdrant import card_desc_hybrid_search_generation, get_card_description
 from mcp_module.RAG.term_rag_based import search_term
 from mcp_module.RAG.mydata_based import tabular_recommendation
 from schemas.card_recommendation import CardRecommendationRequest
+from schemas.card_description import CardDescriptionRequest
 from schemas.qna import FAQRequest, TermRequest
 from schemas.tabular_recommand import (
     ConsumptionRecommandRequest,
@@ -54,6 +55,46 @@ async def card_recommendation(request: CardRecommendationRequest):
         raise HTTPException(
             status_code=500,
             detail=f"카드 추천 실행 중 오류: {str(e)}"
+        )
+
+
+@router.post(
+    "/card-description",
+    summary="특정 카드 설명",
+    description="카드명을 포함한 질문을 받아 해당 카드의 혜택, 연회비, 조건 등을 설명합니다.",
+    operation_id="get_card_description"
+)
+async def card_description(request: CardDescriptionRequest):
+    """
+    특정 카드 설명 제공
+    
+    사용자가 특정 카드에 대해 질문하면 해당 카드의 정보만 검색하여
+    혜택, 연회비, 사용 조건 등을 상세히 설명합니다.
+    
+    지원하는 질문 유형:
+    - 간단한 정보: "우리카드 7CORE 연회비 얼마야?"
+    - 요약 요청: "카드의정석 every point 요약해줘"
+    - 비교 요청: "7CORE와 every point 비교해줘"
+    - 상세 설명: "우리카드 7CORE 혜택 자세히 알려줘"
+    """
+    
+    try:
+        print(f"\n[API] 카드 설명 요청: {request.query}")
+        
+        result = get_card_description(
+            query=request.query,
+            top_k=request.top_k
+        )
+        
+        print(f"[API] 카드 설명 완료 (카드: {result.get('card_id')})\n")
+        
+        return result
+        
+    except Exception as e:
+        print(f"[API 오류] {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"카드 설명 실행 중 오류: {str(e)}"
         )
 
 
@@ -167,7 +208,9 @@ async def health_check():
         "service": "MCP Tools Server",
         "available_tools": [
             "card-recommendation",
+            "card-description",
             "faq-query",
-            "term-query"
+            "term-query",
+            "consumption-recommendation"
         ]
     }
