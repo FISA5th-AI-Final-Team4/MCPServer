@@ -285,3 +285,184 @@ Answer:
     )
 
     return chain.invoke(query)
+
+
+def get_card_description(query: str, top_k: int = 6) -> dict:
+    """
+    특정 카드의 혜택, 연회비, 설명 등을 제공하는 함수
+    
+    사용자 쿼리에서 카드명을 추출하고, 해당 카드의 문서만 검색하여
+    카드 설명을 생성합니다. 기존 hybrid_search와 CustomHybridRetriever를 활용합니다.
+    
+    Args:
+        query: 사용자 쿼리 (예: "우리카드 7CORE 연회비 얼마야?")
+        top_k: 검색할 문서 수 (기본값: 6)
+        
+    Returns:
+        dict: {
+            'answer': str - 생성된 답변,
+            'card_id': str - 인식된 카드 ID (없으면 None)
+        }
+    """
+    print(f"\n[카드 설명] 쿼리: '{query}'")
+    
+    # 1. 쿼리 임베딩 생성
+    q_dense, _ = encode_query(embedding_model, query)
+    
+    # 2. 카드명 추출 (스마트 필터 라우터 사용)
+    query_filter = smart_filter_router(query, q_dense, threshold=0.5)
+    
+    # 카드명을 찾지 못한 경우
+    if query_filter is None:
+        print("[카드 설명] 카드명을 인식할 수 없습니다.")
+        return {
+            'answer': "죄송합니다. 질문에서 카드명을 인식할 수 없습니다. 카드 이름을 명확히 말씀해 주세요. (예: '우리카드 7CORE', '카드의정석 every point' 등)",
+            'card_id': None
+        }
+    
+    # 3. 인식된 카드 ID 추출
+    recognized_card_id = None
+    if query_filter.must:
+        condition = query_filter.must[0]
+        if hasattr(condition.match, 'value'):
+            recognized_card_id = condition.match.value
+        elif hasattr(condition.match, 'any'):
+            recognized_card_id = condition.match.any[0] if condition.match.any else None
+    
+    print(f"[카드 설명] 인식된 카드: {recognized_card_id}")
+    
+    # 4. 기존 hybrid_search 함수 사용 (이미 필터 적용됨)
+    results = hybrid_search(query, topk=top_k)
+    
+    if not results:
+        return {
+            'answer': f"'{recognized_card_id}' 카드의 정보를 찾을 수 없습니다.",
+            'card_id': recognized_card_id
+        }
+    
+    # 5. 기존 CustomHybridRetriever의 로직 활용 - Document 객체로 변환
+    docs = []
+    for (pid, sc, pt) in results:
+        if pt:
+            pl = pt.payload
+            content = pl.get("full_text", pl.get("preview", ""))
+            metadata = {
+                "score": sc,
+                "pid": pid,
+                "card_id": pl.get("card_id"),
+                "doc_id": pl.get("doc_id"),
+                "section": pl.get("section_canonical"),
+                "granularity": pl.get("granularity"),
+                "tag_major": pl.get("tag_major"),
+                "tag_middle": pl.get("tag_middle"),
+                "tag_minor": pl.get("tag_minor"),
+                "preview": pl.get("preview","")
+            }
+            docs.append(Document(page_content=content, metadata=metadata))
+    
+    print(f"[카드 설명] {len(docs)}개 문서 검색 완료")
+    
+    # 6. LLM 인스턴스 생성
+    generation_llm = ChatOllama(
+        model=settings.OLLAMA_MODEL_NAME,
+        base_url=settings.OLLAMA_BASE_URL,
+        temperature=0
+    )
+    
+    # 7. 챗봇 UI 최적화 프롬프트
+    template = """당신은 우리카드 AI 상담사입니다. 사용자의 질문에 친절하고 정확하게 답변하세요.
+
+# 답변 형식 (질문 유형별)
+
+## 1️⃣ 간단한 정보 질문 (연회비, 혜택률 등)
+→ 간결하게 1-2문장으로 핵심만 전달
+예: "우리카드 7CORE의 연회비는 50,000원입니다."
+
+## 2️⃣ 카드 요약 요청
+→ 구조화된 요약 제공
+```
+💳 [카드명]
+
+📌 핵심 특징
+• 주요 혜택 1
+• 주요 혜택 2
+• 주요 혜택 3
+
+💰 비용
+• 연회비: XX원
+• 전월실적: XX원 이상
+
+⚠️ 주의사항
+• 유의사항 1
+• 유의사항 2
+```
+
+## 3️⃣ 여러 카드 비교 요청
+→ 비교표 형식으로 제공
+```
+📊 카드 비교
+
+🔵 [카드1]
+• 연회비: XX원
+• 핵심혜택: ...
+• 적합대상: ...
+
+🟢 [카드2]
+• 연회비: XX원
+• 핵심혜택: ...
+• 적합대상: ...
+
+💡 추천
+- [카드1]은 ~한 분께 추천
+- [카드2]는 ~한 분께 추천
+```
+
+## 4️⃣ 상세 설명 요청
+→ 섹션별로 구분하여 상세 설명
+```
+📋 [카드명] 상세 정보
+
+🎁 혜택
+• 혜택 1: 상세 설명
+• 혜택 2: 상세 설명
+
+💵 연회비 및 실적
+• 연회비: ...
+• 전월실적 조건: ...
+
+📝 이용 안내
+• 주의사항 1
+• 주의사항 2
+```
+
+# 답변 규칙
+✅ Context 정보만 사용 (없으면 "제공되지 않음" 표기)
+✅ 구체적인 수치 명시 (연회비, 할인율, 한도 등)
+✅ 챗봇 UI에 보기 좋게 줄바꿈과 이모지 활용
+✅ 카드명은 정확히 표기
+✅ 전문 용어는 쉽게 풀어서 설명
+
+# 카드 정보 (Context)
+{context}
+
+# 사용자 질문
+{question}
+
+# 답변
+"""
+    
+    prompt = ChatPromptTemplate.from_template(template)
+    
+    # 8. 기존 format_docs 함수 활용
+    context = format_docs(docs)
+    
+    # 9. 답변 생성 (기존 LCEL 패턴 활용)
+    chain = prompt | generation_llm | StrOutputParser()
+    answer = chain.invoke({"context": context, "question": query})
+    
+    print(f"[카드 설명] 답변 생성 완료\n")
+    
+    return {
+        'answer': answer,
+        'card_id': recognized_card_id
+    }
