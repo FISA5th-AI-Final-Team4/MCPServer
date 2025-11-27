@@ -67,10 +67,7 @@ async def card_description(request: CardDescriptionRequest):
     try:
         print(f"\n[API] 카드 설명 요청: {request.query}")
         
-        result = get_card_description(
-            query=request.query,
-            top_k=request.top_k
-        )
+        result = get_card_description(query=request.query)
         
         print(f"[API] 카드 설명 완료 (카드: {result.get('card_ids')})\n")
         
