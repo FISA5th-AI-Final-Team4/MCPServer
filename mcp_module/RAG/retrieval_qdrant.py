@@ -1,4 +1,4 @@
-from FlagEmbedding import BGEM3FlagModel # 임베딩 모델 
+from FlagEmbedding import BGEM3FlagModel, FlagReranker # 임베딩 모델 및 리랭커
 from qdrant_client import QdrantClient # Qdrant 클라이언트
 from qdrant_client.models import (
     Filter, FieldCondition, MatchValue, MatchAny,
@@ -21,6 +21,14 @@ from typing import Any, Tuple, List, Callable
 from core.qdrant_upsert import embedding_model, qdrant_connection, COL
 from core.qdrant_upsert_utils import _to_list, _extract_sparse
 from core.config import settings
+
+# 리랭커 초기화 (BGE-M3와 동일 모델 사용)
+try:
+    reranker = FlagReranker('BAAI/bge-reranker-v2-m3', use_fp16=True)
+    print("[Init] 리랭커 로드 완료: bge-reranker-v2-m3")
+except Exception as e:
+    print(f"[Warning] 리랭커 로드 실패: {e}. 리랭킹 없이 진행합니다.")
+    reranker = None
 
 # 카드 별칭 정의 맵 로드
 # 새로운 구조: {"카드ID": ["별칭1", "별칭2", ...]}
@@ -151,23 +159,102 @@ def hybrid_search(query: str) -> List[Tuple[str, float, Any]]:
 
     # 4. 후보군 합산 (ID 기준 중복 제거)
     seen_ids = set()
-    results = []
+    all_results = []
     
     # Dense 결과 추가
     for r in dres:
         if r.id not in seen_ids:
-            results.append((r.id, r.score, r))
+            all_results.append((r.id, r.score, r))
             seen_ids.add(r.id)
     
     # Sparse 결과 추가
     for r in sres:
         if r.id not in seen_ids:
-            results.append((r.id, r.score, r))
+            all_results.append((r.id, r.score, r))
             seen_ids.add(r.id)
     
-    print(f"\n{'='*80}")
-    print(f"[후보군 합산 결과] 총 {len(results)}개 문서 (리랭킹 없이 모두 반환)")
-    print(f"{'='*80}")
+    # 5. 카드 개수 확인
+    card_ids = set()
+    for pid, score, pt in all_results:
+        if pt:
+            card_ids.add(pt.payload.get('card_id', 'Unknown'))
+    
+    is_comparison = len(card_ids) >= 2  # 2개 이상 카드 = 비교 쿼리
+    
+    # 6. 상위 N개 선택 전략
+    if is_comparison:
+        # 비교 쿼리: 섹션별로 균형있게 선택 (각 카드에서 동일 섹션 포함 보장)
+        # 섹션별 상위 문서 선택 후 카드별로 분배
+        section_priority = ['FEES', 'BENEFITS', 'USAGE_GUIDE', 'RESTRICTIONS', 'CONDITIONS', 'OTHER']
+        
+        # 카드별, 섹션별로 문서 그룹화
+        card_section_docs = {}
+        for pid, score, pt in all_results:
+            if pt:
+                card_id = pt.payload.get('card_id', 'Unknown')
+                section = pt.payload.get('section_canonical', 'OTHER')
+                
+                if card_id not in card_section_docs:
+                    card_section_docs[card_id] = {}
+                if section not in card_section_docs[card_id]:
+                    card_section_docs[card_id][section] = []
+                
+                card_section_docs[card_id][section].append((pid, score, pt))
+        
+        # 각 카드에서 상위 8개씩 선택 (섹션 균형 고려)
+        results = []
+        for card_id in card_section_docs:
+            card_docs = []
+            # 섹션별로 최소 1개씩은 포함하도록
+            for section in section_priority:
+                if section in card_section_docs[card_id]:
+                    section_docs = sorted(card_section_docs[card_id][section], 
+                                        key=lambda x: x[1], reverse=True)[:2]
+                    card_docs.extend(section_docs)
+            # 상위 8개만 선택
+            card_docs = sorted(card_docs, key=lambda x: x[1], reverse=True)[:8]
+            results.extend(card_docs)
+        
+        print(f"\n{'='*80}")
+        print(f"[비교 쿼리 감지] {len(card_ids)}개 카드 비교: {', '.join(card_ids)}")
+        print(f"[카드별 균형 선택] 총 {len(all_results)}개 → {len(results)}개 문서 (카드당 8개씩)")
+        print(f"{'='*80}")
+    else:
+        # 단일 카드 쿼리: 단순히 상위 15개 선택
+        results = sorted(all_results, key=lambda x: x[1], reverse=True)[:15]
+        
+        print(f"\n{'='*80}")
+        print(f"[단일 카드 쿼리] 총 {len(all_results)}개 → 상위 {len(results)}개 문서 선택")
+        print(f"{'='*80}")
+    
+    # 7. 리랭킹 적용 (옵션)
+    if reranker and results:
+        print(f"\n[리랭킹 시작] {len(results)}개 문서 재평가...")
+        
+        # 리랭커 입력 형식: [(query, passage), ...]
+        pairs = []
+        for pid, score, pt in results:
+            if pt:
+                # preview 또는 full_text 사용
+                text = pt.payload.get('preview', pt.payload.get('full_text', ''))
+                pairs.append([query, text])
+        
+        # 리랭킹 실행
+        try:
+            rerank_scores = reranker.compute_score(pairs)
+            
+            # 기존 결과에 리랭크 점수 추가
+            reranked_results = []
+            for i, (pid, old_score, pt) in enumerate(results):
+                new_score = rerank_scores[i] if isinstance(rerank_scores, list) else rerank_scores
+                reranked_results.append((pid, new_score, pt))
+            
+            # 리랭크 점수로 재정렬
+            results = sorted(reranked_results, key=lambda x: x[1], reverse=True)
+            
+            print(f"[리랭킹 완료] 상위 5개 점수: {[f'{r[1]:.4f}' for r in results[:5]]}")
+        except Exception as e:
+            print(f"[리랭킹 실패] {e}. 원본 순서 유지.")
     
     for idx, (pid, score, pt) in enumerate(results, 1):
         if pt:
@@ -334,135 +421,58 @@ def get_card_description(query: str) -> dict:
         temperature=0
     )
     
-    # 7. Qwen 4B 모델 프롬프트 (사용자 경험 최적화)
-    template = """당신은 친절한 우리카드 상담 AI입니다. 사용자 질문에 대화하듯 자연스럽고 읽기 편하게 답변하세요.
+    # 7. Qwen 4B 모델 프롬프트 (단순하고 명확한 지시)
+    template = """당신은 우리카드 상담 AI입니다. 주어진 카드 정보만을 사용하여 정확하게 답변하세요.
 
-# 핵심 원칙
-1. **사용자 질문 의도**에 맞춰 답변 길이와 형식을 조절
-2. **핵심 정보 우선** - 가장 중요한 내용을 먼저, 부가 정보는 나중에
-3. **자연스러운 대화체** - "~입니다" 대신 "~해요", "~예요" 등 부드러운 어투
-4. **시각적 구분** - 이모지는 필수 아닌 선택적 사용, 과도하지 않게
-5. **모바일 친화적** - 테이블 대신 리스트, 짧은 문단, 적절한 줄바꿈
+# 필수 규칙
+1. **절대 추측하지 마세요** - 카드 정보에 없는 내용은 "정보에 없습니다"라고 답변
+2. **날짜/금액은 정확히** - 출시일, 연회비, 할인율 등 숫자는 카드 정보 그대로 사용
+3. **대화체 사용** - "~해요", "~이에요" 등 친근한 말투
+4. **이모지 활용** - 섹션 구분에 이모지 사용 (📌 혜택, 💰 비용, ⚠️ 주의사항 등)
+5. **적절한 개행** - 섹션 간 1줄, 항목 간 빈 줄 없음
 
-# 질문 유형별 답변 전략
+# 답변 형식 (질문 유형에 따라)
 
-## 1. 간단한 사실 확인 ("연회비?", "할인율?", "가족카드?")
-→ **즉답 1-2문장** + 필요시 간단한 추가 설명
-예: "연회비는 50,000원이에요. 전월실적 조건은 없습니다."
+## 단순 질문 (연회비? 실적? 가족카드?)
+즉답 1-2문장으로 끝내기
+예: 연회비는 12,000원이에요. (해외겸용 기준)
 
-## 2. 카드 전체 소개 ("알려줘", "어떤 카드?", "설명해줘")
-→ **3단계 구조**: 한 줄 요약 → 핵심 혜택 → 비용/조건
-예시:
-**7CORE 카드**는 생활밀착형 7대 영역에서 10% 할인받는 카드예요.
+## 전체 소개 (알려줘, 설명해줘, 뭐야?)
+📌 **핵심 혜택**
+• 주요 혜택 나열 (간단명료하게)
 
-**어디서 할인되나요?**
-• 온라인쇼핑 - 쿠팡, SSG, 컬리 등
-• 배달앱 - 배민, 쿠팡이츠, 요기요
-• 커피 - 스벅, 투썸, 이디야
-• 대형마트 - 이마트, 롯데마트
-• 교육 - 학원, 서점
-• 병원 - 종합병원, 치과, 동물병원
-• 주유 - SK, GS, 현대, S-OIL
+💰 **비용**
+• 연회비: 정확한 금액
+• 실적 조건: 있으면 명시, 없으면 "없음"
 
-**월 최대 할인**
-소비액에 따라 달라져요:
-- 50~100만원: 28,000원
-- 100~200만원: 42,000원
-- 200만원 이상: 84,000원
+⚠️ **참고사항**
+• 주요 유의사항 (있으면)
 
-**비용**
-연회비 50,000원이고, 실적 조건은 없어요.
+## 혜택 질문 (혜택? 할인? 적립?)
+📌 **혜택**으로 시작하여 상세히 나열
 
-## 3. 혜택 집중 질문 ("혜택?", "뭐가 좋아?", "할인?")
-→ **혜택 중심** + 실사용 팁
-예시:
-주요 혜택은 **7대 생활영역 10% 할인**이에요.
+## 비교 질문 (A vs B, 차이?, 비교해줘)
+**반드시 테이블 형식**으로 비교하세요:
 
-가장 많이 쓰는 곳:
-• 쿠팡, 배민 같은 온라인/배달 (거의 매일 쓰죠)
-• 스타벅스 커피 (하루 한잔이면 월 5천원 이상 절약)
-• 이마트 장보기 (주말 장보기 할인)
+| 구분 | [카드A 이름] | [카드B 이름] |
+|------|------------|------------|
+| 연회비 | 금액 | 금액 |
+| 핵심혜택 | 간단 요약 | 간단 요약 |
+| 할인/적립한도 | 금액 | 금액 |
+| 전월실적 | 조건 | 조건 |
+| 특징 | 핵심 1줄 | 핵심 1줄 |
 
-월 최대 84,000원까지 할인되니까, 월 200만원 이상 쓰시면 가장 이득이에요.
-
-## 4. 특정 카테고리 확인 ("스타벅스 돼?", "쿠팡 할인?")
-→ **Yes/No 먼저** + 구체적 조건
-예: "네, 스타벅스 할인돼요! 커피전문점 10% 할인이 적용되고, 월 소비액에 따라 최대 12,000원까지 받을 수 있어요."
-
-## 5. 비용 관련 ("연회비?", "실적?", "비싸?")
-→ **금액 직접 제시** + 면제 조건 (있다면)
-예시:
-연회비는 **50,000원**이에요.
-
-• 실적 조건 없음 (부담 없이 사용 가능)
-• 가족카드는 발급되지 않아요
-
-## 6. 한도/조건 ("얼마까지?", "조건?", "한도?")
-→ **구간별 명확하게** + 실제 예시
-예시:
-월 할인한도는 **소비액에 따라 차등** 적용돼요:
-
-• 50~100만원 쓰시면 → 최대 28,000원
-• 100~200만원 쓰시면 → 최대 42,000원
-• 200만원 이상 쓰시면 → 최대 84,000원
-
-예를 들어 월 250만원 쓰시면, 7개 영역에서 각 12,000원씩 총 84,000원 할인받을 수 있어요.
-
-## 7. 유의사항 ("조심할 거?", "제외?", "안되는 거?")
-→ **부정적 톤 피하기** + "참고하세요" 톤
-예시:
-몇 가지 참고하실 점:
-
-• 현금서비스/카드대출은 실적에 안 들어가요
-• 일부 백화점 내 입점 매장은 제외될 수 있어요
-• 연회비 환불은 최대 3개월 소요돼요
-
-큰 제약은 없고, 일반적인 생활 소비는 대부분 할인 적용돼요!
-
-## 8. 비교 질문 ("A vs B", "뭐가 나아?")
-→ **테이블 대신 리스트** + 한 줄 결론
-예시:
-두 카드 비교해드릴게요.
-
-**7CORE 카드**
-• 연회비: 50,000원
-• 혜택: 7대 영역 10% 할인
-• 한도: 최대 84,000원
-• 특징: 실적 조건 없음
-
-**EVERY POINT 카드**
-• 연회비: 20,000원
-• 혜택: 전가맹점 0.7% 적립
-• 한도: 최대 30,000원
-• 특징: 전월 30만원 이상 필요
-
-▶︎ **온라인/배달 많이 쓰시면** 7CORE가 유리하고, **다양한 곳에서 조금씩** 쓰시면 EVERY POINT가 나아요.
-
-## 9. 추천/적합성 ("나한테 맞아?", "추천?", "누구한테 좋아?")
-→ **사용 패턴 기반** + 공감 표현
-예시:
-이런 분들께 잘 맞아요:
-
-✓ 쿠팡, 배민 자주 시키시는 분
-✓ 스타벅스 출근길 커피 루틴 있으신 분
-✓ 월 200만원 이상 카드 쓰시는 분
-✓ 학원비, 병원비 고정 지출 있으신 분
-
-특히 **생활비 대부분을 카드로** 쓰시면 월 8만원 넘게 할인받을 수 있어서 연회비 충분히 뽑아요.
-
-## 10. Yes/No 질문 ("돼?", "가능?", "지원?")
-→ **명확한 답 + 조건 1줄**
-예: "네, 가능해요! 온라인쇼핑 10% 할인이 적용되고, 월 소비액에 따라 최대 12,000원까지 할인받을 수 있어요."
+테이블 아래에 한 줄 결론 추가
 
 ---
 
 # 카드 정보
 {context}
 
-# 질문
+# 사용자 질문
 {question}
 
-# 답변
+# 답변 
 """
     prompt = ChatPromptTemplate.from_template(template)
     
