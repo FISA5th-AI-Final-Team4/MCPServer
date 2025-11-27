@@ -109,12 +109,12 @@ def smart_filter_router(query: str, query_dense_vec: List, threshold=0.5) -> Fil
     print(f"[Debug] (Step 2: Similarity) 유사도 높은 카드 없음 (Best: {best_match_name}, Score: {best_match_score:.2f}). 필터 미적용.")
     return None
 
-def hybrid_search(query: str, topk: int=10,) -> List[Tuple[str, float, Any]]:
+def hybrid_search(query: str) -> List[Tuple[str, float, Any]]:
     """
     하이브리드 검색 함수 (Dense + Sparse 후보군 합산, 리랭킹 제거)
+    카드 필터링 후 해당 카드의 모든 문서를 검색합니다.
     Args:
         - query: 사용자 쿼리 문자열
-        - topk: 검색할 문서 수 (Dense, Sparse 각각 적용)
     Returns:
         - List of (doc_id, score, point) 튜플 리스트 (모든 후보군 반환)
     """
@@ -128,12 +128,12 @@ def hybrid_search(query: str, topk: int=10,) -> List[Tuple[str, float, Any]]:
     query_filter = smart_filter_router(query, q_dense)
     print(f"[Debug] 스마트 필터 생성 완료: {query_filter}")
 
-    # 3. Dense + Sparse 검색 (필터 적용)
+    # 3. Dense + Sparse 검색 (필터 적용, limit 크게 설정하여 모든 문서 가져오기)
     dres = qdrant_connection.search(
         collection_name=COL,
         query_vector=q_dense,
         query_filter=query_filter,
-        limit=topk
+        limit=100  # 충분히 큰 값으로 설정
     )
     sres = qdrant_connection.search(
         collection_name=COL,
@@ -145,7 +145,7 @@ def hybrid_search(query: str, topk: int=10,) -> List[Tuple[str, float, Any]]:
             )
         ),
         query_filter=query_filter,
-        limit=topk
+        limit=100  # 충분히 큰 값으로 설정
     )
     print(f"[Debug] 검색 완료. (Dense hits: {len(dres)}, Sparse hits: {len(sres)})")
 
@@ -165,7 +165,29 @@ def hybrid_search(query: str, topk: int=10,) -> List[Tuple[str, float, Any]]:
             results.append((r.id, r.score, r))
             seen_ids.add(r.id)
     
-    print(f"[Debug] 후보군 합산 완료. (총 {len(results)}개 문서, 리랭킹 없이 모두 반환)")
+    print(f"\n{'='*80}")
+    print(f"[후보군 합산 결과] 총 {len(results)}개 문서 (리랭킹 없이 모두 반환)")
+    print(f"{'='*80}")
+    
+    for idx, (pid, score, pt) in enumerate(results, 1):
+        if pt:
+            pl = pt.payload
+            card_id = pl.get('card_id', 'N/A')
+            doc_id = pl.get('doc_id', 'N/A')
+            section = pl.get('section_canonical', 'N/A')
+            granularity = pl.get('granularity', 'N/A')
+            tag_major = pl.get('tag_major', 'N/A')
+            tag_middle = pl.get('tag_middle', 'N/A')
+            preview = pl.get('preview', '')[:100]  # 미리보기 100자
+            
+            print(f"\n[{idx}] score={score:.4f} | UUID: {pid}")
+            print(f"    카드: {card_id}")
+            print(f"    doc_id: {doc_id}")
+            print(f"    구분: {section} ({granularity})")
+            print(f"    경로: {tag_major} > {tag_middle}")
+            print(f"    내용: {preview}...")
+    
+    print(f"\n{'='*80}\n")
     
     return results
 
@@ -188,14 +210,13 @@ def print_rag_documents(docs: List[Document]) -> None:
 
 class CustomHybridRetriever(BaseRetriever):
     search_func: Callable
-    top_k: int = 6
 
     def _get_relevant_documents(
         self, query: str, *, run_manager: CallbackManagerForRetrieverRun
     ) -> List[Document]:
 
-        # 1. Reranker + Filter가 적용된 하이브리드 검색 실행
-        results = self.search_func(query, topk=self.top_k) # ⬅️ alpha 없음
+        # 1. 하이브리드 검색 실행 (모든 문서 반환)
+        results = self.search_func(query)
 
         # 2. 랭체인 'Document' 객체로 변환
         docs = []
@@ -231,16 +252,15 @@ def format_docs(docs: List[Document]) -> str:
     )
 
 
-def get_card_description(query: str, top_k: int = 6) -> dict:
+def get_card_description(query: str) -> dict:
     """
     특정 카드의 혜택, 연회비, 설명 등을 제공하는 함수
     
-    사용자 쿼리에서 카드명을 추출하고, 해당 카드의 문서만 검색하여
+    사용자 쿼리에서 카드명을 추출하고, 해당 카드의 모든 문서를 검색하여
     카드 설명을 생성합니다. 기존 hybrid_search와 CustomHybridRetriever를 활용합니다.
     
     Args:
         query: 사용자 쿼리 (예: "우리카드 7CORE 연회비 얼마야?")
-        top_k: 검색할 문서 수 (기본값: 6)
         
     Returns:
         dict: {
@@ -275,8 +295,8 @@ def get_card_description(query: str, top_k: int = 6) -> dict:
     
     print(f"[카드 설명] 인식된 카드: {recognized_card_ids}")
     
-    # 4. 기존 hybrid_search 함수 사용 (이미 필터 적용됨)
-    results = hybrid_search(query, topk=top_k)
+    # 4. 기존 hybrid_search 함수 사용 (모든 문서 검색)
+    results = hybrid_search(query)
     
     if not results:
         card_names_str = "', '".join(recognized_card_ids)
