@@ -153,19 +153,19 @@ def search_term(term_query: str) -> str:
                 answer += f"\n\n[{term_info['category_name']}]\n\n"
                 answer += f"[정의]\n{term_info['definition']}\n"
                 
-                # 관련 용어
-                if term_info['related_terms']:
-                    placeholders = ','.join(['%s'] * len(term_info['related_terms']))
-                    cursor.execute(
-                        f"SELECT term, definition FROM terms WHERE term IN ({placeholders}) LIMIT 5;",
-                        tuple(term_info['related_terms'])
-                    )
-                    related = cursor.fetchall()
+                # # 관련 용어
+                # if term_info['related_terms']:
+                #     placeholders = ','.join(['%s'] * len(term_info['related_terms']))
+                #     cursor.execute(
+                #         f"SELECT term, definition FROM terms WHERE term IN ({placeholders}) LIMIT 5;",
+                #         tuple(term_info['related_terms'])
+                #     )
+                #     related = cursor.fetchall()
                     
-                    if related:
-                        answer += "\n\n[관련 용어]\n"
-                        for term, definition in related:
-                            answer += f"- {term}: {definition[:50]}...\n"
+                #     if related:
+                #         answer += "\n\n[관련 용어]\n"
+                #         for term, definition in related:
+                #             answer += f"- {term}: {definition[:50]}...\n"
                 
                 # views 카운트 증가
                 cursor.execute(
