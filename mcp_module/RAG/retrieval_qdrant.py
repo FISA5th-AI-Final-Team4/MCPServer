@@ -67,7 +67,7 @@ def encode_query(embed_model: BGEM3FlagModel, text: str) -> Tuple[List[float], S
     sparse = _extract_sparse(out)
     return dense, sparse
 
-def smart_filter_router(query: str, query_dense_vec: List, threshold=0.5) -> Filter | None:
+def smart_filter_router(query: str, query_dense_vec: List, threshold=0.75) -> Filter | None:
     """
     스마트 필터 라우터 (2단계로 구성된 로직)
         1. 키워드 매칭(MatchAny)
@@ -75,7 +75,7 @@ def smart_filter_router(query: str, query_dense_vec: List, threshold=0.5) -> Fil
     Args:
         - query: 사용자 쿼리 문자열
         - query_dense_vec: 쿼리의 밀집 벡터 리스트
-        - threshold: 유사도 임계값 (기본값: 0.5)
+        - threshold: 유사도 임계값 (기본값: 0.75)
     Returns:
         - Filter 인스턴스 또는 None
     """
@@ -361,7 +361,7 @@ def get_card_description(query: str) -> dict:
     q_dense, _ = encode_query(embedding_model, query)
     
     # 2. 카드명 추출 (스마트 필터 라우터 사용)
-    query_filter = smart_filter_router(query, q_dense, threshold=0.5)
+    query_filter = smart_filter_router(query, q_dense, threshold=0.75)
     
     # 카드명을 찾지 못한 경우
     if query_filter is None:
