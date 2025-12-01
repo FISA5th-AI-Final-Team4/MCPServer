@@ -119,6 +119,8 @@ h11==0.16.0
     #   uvicorn
 h2==4.3.0
     # via httpx
+hdbscan==0.8.40
+    # via -r requirements.in
 hf-xet==1.2.0
     # via huggingface-hub
 hpack==4.1.0
@@ -182,7 +184,10 @@ jeepney==0.9.0
 jinja2==3.1.6
     # via torch
 joblib==1.5.2
-    # via scikit-learn
+    # via
+    #   hdbscan
+    #   pynndescent
+    #   scikit-learn
 jsonpatch==1.33
     # via langchain-core
 jsonpointer==3.0.0
@@ -240,6 +245,10 @@ langsmith==0.4.38
     #   langchain-core
 lazy-object-proxy==1.12.0
     # via openapi-spec-validator
+llvmlite==0.45.1
+    # via
+    #   numba
+    #   pynndescent
 lxml==6.0.2
     # via
     #   inscriptis
@@ -277,13 +286,19 @@ mypy-extensions==1.1.0
     # via typing-inspect
 networkx==3.5
     # via torch
+numba==0.62.1
+    # via
+    #   pynndescent
+    #   umap-learn
 numpy==2.3.4
     # via
     #   accelerate
     #   datasets
     #   faiss-cpu
+    #   hdbscan
     #   ir-datasets
     #   langchain-community
+    #   numba
     #   pandas
     #   peft
     #   qdrant-client
@@ -291,6 +306,7 @@ numpy==2.3.4
     #   scipy
     #   transformers
     #   trec-car-tools
+    #   umap-learn
 nvidia-cublas-cu12==12.8.4.1
     # via
     #   nvidia-cudnn-cu12
@@ -430,6 +446,8 @@ pygments==2.19.2
     # via
     #   pytest
     #   rich
+pynndescent==0.5.13
+    # via umap-learn
 pyperclip==1.11.0
     # via fastmcp
 pytest==8.4.2
@@ -506,11 +524,18 @@ safetensors==0.6.2
     #   peft
     #   transformers
 scikit-learn==1.7.2
-    # via sentence-transformers
+    # via
+    #   hdbscan
+    #   pynndescent
+    #   sentence-transformers
+    #   umap-learn
 scipy==1.16.3
     # via
+    #   hdbscan
+    #   pynndescent
     #   scikit-learn
     #   sentence-transformers
+    #   umap-learn
 secretstorage==3.4.0
     # via keyring
 sentence-transformers==5.1.2
@@ -566,6 +591,7 @@ tqdm==4.67.1
     #   peft
     #   sentence-transformers
     #   transformers
+    #   umap-learn
 transformers==4.57.1
     # via
     #   flagembedding
@@ -607,6 +633,8 @@ typing-inspection==0.4.2
     #   pydantic-settings
 tzdata==2025.2
     # via pandas
+umap-learn==0.5.9.post2
+    # via -r requirements.in
 unlzw3==0.2.3
     # via ir-datasets
 urllib3==2.5.0
