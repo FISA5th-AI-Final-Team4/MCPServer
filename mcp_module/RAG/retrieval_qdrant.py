@@ -415,11 +415,19 @@ def get_card_description(query: str) -> dict:
     print(f"[카드 설명] {len(docs)}개 문서 검색 완료")
     
     # 6. LLM 인스턴스 생성 (4B 모델)
-    generation_llm = ChatOllama(
-        model=settings.OLLAMA_MODEL_NAME,
-        base_url=settings.OLLAMA_BASE_URL,
-        temperature=0
-    )
+    # generation_llm = ChatOllama(
+    #     model=settings.OLLAMA_MODEL_NAME,
+    #     base_url=settings.OLLAMA_BASE_URL,
+    #     temperature=0
+    # )
+    from langchain_openai import ChatOpenAI
+
+    # 2. 인스턴스 생성
+    generation_llm = ChatOpenAI(
+    model="gpt-5-mini",  # 또는 "gpt-4o-mini", "gpt-3.5-turbo"
+    api_key=settings.OPENAI_API_KEY,  # settings에 정의된 키 사용
+    temperature=0
+)
     
     # 7. Qwen 4B 모델 프롬프트 (간결하고 구조화된 출력)
     
@@ -556,5 +564,5 @@ A:
     
     return {
         'answer': answer,
-        'card_ids': recognized_card_ids
+        'card_list': recognized_card_ids
     }
