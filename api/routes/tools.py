@@ -38,10 +38,11 @@ async def card_recommendation(request: CardRecommendationRequest):
     """
     
     # TODO: 구현 예정
-    raise HTTPException(
-        status_code=501,
-        detail="카드 추천 기능은 현재 구현 중입니다."
-    )
+    # raise HTTPException(
+    #     status_code=501,
+    #     detail="카드 추천 기능은 현재 구현 중입니다."
+    # )
+    return {"answer": "카드 추천 기능은 현재 구현 중입니다."}
 
 
 @router.post(
