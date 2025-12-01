@@ -6,7 +6,8 @@ from mcp_module.RAG.faq_rag_based import search_faq
 from mcp_module.RAG.retrieval_qdrant import get_card_description
 from mcp_module.RAG.term_rag_based import search_term
 from mcp_module.RAG.mydata_based import tabular_recommendation
-from schemas.card_recommendation import CardRecommendationRequest
+from mcp_module.RAG.card_recommend_based import get_card_recommendation
+from schemas.card_recommendation import CardRecommendationRequest, CardRecommendationResponse
 from schemas.card_description import CardDescriptionRequest
 from schemas.qna import FAQRequest, TermRequest
 from schemas.tabular_recommand import (
@@ -23,26 +24,51 @@ router = APIRouter(prefix="/tools", tags=["mcp-tools"])
 
 @router.post(
     "/card-recommendation",
-    summary="카드 추천 RAG 파이프라인 (개발 중)",
-    description="사용자 질문을 받아 RAG 파이프라인을 실행하여 카드를 추천합니다. (현재 구현 중)",
-    operation_id="get_card_recommendation"
+    summary="GraphRAG 기반 카드 추천",
+    description="사용자 질문을 받아 GraphRAG 파이프라인을 실행하여 TOP3 카드를 추천합니다.",
+    operation_id="get_card_recommendation",
+    response_model=CardRecommendationResponse
 )
 async def card_recommendation(request: CardRecommendationRequest):
     """
-    카드 추천 RAG 파이프라인 실행 (구현 중)
+    GraphRAG 기반 카드 추천 파이프라인 실행
     
-    LLM 서버에서 쿼리 라우팅을 통해 호출되며,
-    벡터 DB 검색 → 컨텍스트 선정 → 최종 답변 생성을 수행합니다.
+    Knowledge Graph에서 관련 커뮤니티/청크를 검색하여
+    사용자 요구사항에 맞는 TOP3 카드를 추천합니다.
     
-    TODO: 카드 추천 로직 구현 예정
+    검색 모드:
+    - global: 커뮤니티 리포트 기반 전체 조망 (추천용)
+    - local: 청크 기반 세부 정보 (특정 카드 상세 설명용)
+    
+    멀티턴 대화 지원:
+    - session_id를 제공하면 이전 질문 맥락을 활용합니다.
     """
     
-    # TODO: 구현 예정
-    # raise HTTPException(
-    #     status_code=501,
-    #     detail="카드 추천 기능은 현재 구현 중입니다."
-    # )
-    return {"answer": "카드 추천 기능은 현재 구현 중입니다."}
+    try:
+        print(f"\n[API] 카드 추천 요청: {request.query} (mode={request.mode})")
+        
+        result = await get_card_recommendation(
+            query=request.query,
+            session_id=request.session_id,
+            mode=request.mode
+        )
+        
+        print(f"[API] 카드 추천 완료 - 추천 카드: {result.get('card_list', [])}\n")
+        
+        return result
+        
+    except FileNotFoundError as e:
+        print(f"[API 오류] GraphRAG 인덱스 없음: {str(e)}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"GraphRAG 인덱스가 준비되지 않았습니다: {str(e)}"
+        )
+    except Exception as e:
+        print(f"[API 오류] {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"카드 추천 실행 중 오류: {str(e)}"
+        )
 
 
 @router.post(
@@ -191,7 +217,7 @@ async def health_check():
         "status": "healthy",
         "service": "MCP Tools Server",
         "available_tools": [
-            "card-recommendation",
+            "card-recommendation (GraphRAG)",
             "card-description",
             "faq-query",
             "term-query",
