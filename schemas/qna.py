@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 class FAQRequest(BaseModel):
     """FAQ 검색 요청"""
     query: str = Field(..., description="사용자 질문", min_length=1)
-    top_k: int = Field(default=3, description="반환할 최대 FAQ 개수", ge=1, le=10)
+    top_k: int = Field(default=3, description="반환할 최대 FAQ 개수", ge=3, le=10)
 
 
 class FAQResult(BaseModel):
