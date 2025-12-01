@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     
     # 백엔드 서버 주소
     BACKEND_SERVER_URL: str
+    OPENAI_API_KEY: str
 
     @property
     def POSTGRES_PASSWORD(self) -> str:
