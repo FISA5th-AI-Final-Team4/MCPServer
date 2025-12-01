@@ -154,7 +154,13 @@ async def tabular_recommendation(session_id: str) -> Tuple[str, bool, List[str]]
             f"{settings.BACKEND_SERVER_URL}/api/login/persona_id",
             json={"session_id": str(session_id)}
         )
-        persona_id = res.json().get("persona_id", None)
+        try:
+            persona_data = res.json()
+        except ValueError as exc:
+            raise RuntimeError("페르소나 조회 응답이 JSON 형식이 아닙니다.") from exc
+        if not isinstance(persona_data, dict):
+            persona_data = {}
+        persona_id = persona_data.get("persona_id", None)
         print(f"[tabular_recommendation] 조회된 페르소나 ID: {persona_id}")
     
     # ========================================================================
