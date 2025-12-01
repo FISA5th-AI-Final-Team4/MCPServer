@@ -16,14 +16,37 @@ from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 from nano_graphrag import GraphRAG, QueryParam
 from nano_graphrag._utils import wrap_embedding_func_with_attrs
+import nano_graphrag.prompt as nano_prompts  # nano-graphrag 내장 프롬프트
 from langchain_openai import ChatOpenAI
 
 from core.config import settings
 # 기존 카드 설명 RAG와 동일한 임베딩 모델 사용 (싱글톤)
 from core.qdrant_upsert import embedding_model as bge_model
 
-# 프롬프트 파일 경로 (Card_recommend/prompt.py)
+# 프롬프트 파일 로드 (Card_recommend/prompt.py)
 PROMPT_PATH = Path(__file__).parent.parent.parent / "Card_recommend" / "prompt.py"
+
+# 카드 별칭 맵 로드 (카드명 추출용)
+ALIAS_MAP_PATH = Path(__file__).parent.parent.parent / "data" / "alias_map.json"
+with open(ALIAS_MAP_PATH, "r", encoding="utf-8") as f:
+    CARD_ID_TO_ALIASES = json.load(f)
+
+# ============================================================================
+# nano-graphrag 프롬프트 오버라이드 (Card_recommend/prompt.py 사용)
+# ============================================================================
+# prompt.py 파일을 동적으로 로드하여 nano-graphrag 내장 프롬프트 교체
+if PROMPT_PATH.exists():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("card_prompts", PROMPT_PATH)
+    card_prompts = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(card_prompts)
+    
+    # nano-graphrag의 PROMPTS 딕셔너리 오버라이드
+    if hasattr(card_prompts, 'PROMPTS'):
+        for key in ['local_rag_response', 'global_reduce_rag_response', 'global_map_rag_points']:
+            if key in card_prompts.PROMPTS:
+                nano_prompts.PROMPTS[key] = card_prompts.PROMPTS[key]
+                logging.info(f"[GraphRAG] 프롬프트 오버라이드: {key}")
 
 # ============================================================================
 # 로깅 설정
@@ -282,23 +305,23 @@ async def custom_llm_complete_async(
 # ============================================================================
 
 async def BEST_MODEL_INFER(prompt, system_prompt=None, history_messages=None, **kwargs):
-    """최종 답변 생성용 모델 (GPT-4-mini)"""
+    """최종 답변 생성용 모델 (GPT-5-mini)"""
     return await custom_llm_complete_async(
         prompt,
         system_prompt=system_prompt,
         history_messages=history_messages,
-        model_name="gpt-4o-mini",
+        model_name="gpt-5-mini",
         **kwargs,
     )
 
 
 async def CHEAP_MODEL_INFER(prompt, system_prompt=None, history_messages=None, **kwargs):
-    """커뮤니티 관련성 판단용 모델 (GPT-4o-mini)"""
+    """커뮤니티 관련성 판단용 모델 (GPT-5-nano)"""
     return await custom_llm_complete_async(
         prompt,
         system_prompt=system_prompt,
         history_messages=history_messages,
-        model_name="gpt-4o-mini",
+        model_name="gpt-5-nano",
         **kwargs,
     )
 
@@ -343,25 +366,35 @@ def get_graphrag_instance() -> GraphRAG:
 
 def _extract_card_ids_from_answer(answer: str) -> List[str]:
     """
-    GraphRAG 답변에서 추천된 카드명(카드 ID) 추출
+    GraphRAG 답변에서 TOP3 추천 카드명(카드 ID) 추출
     
-    답변 형식 예시:
-    1순위 : 카드의정석2
-    2순위 : 우리카드 7CORE
-    3순위 : 카드의정석 every point
+    "N순위 : 카드명" 형식에서 카드명을 추출하고,
+    alias_map.json의 key(카드 ID)와 직접 매칭합니다.
     """
     card_ids = []
+    seen = set()  # 중복 방지
     
-    # "N순위 : 카드명" 패턴 매칭
-    pattern = r'(\d)순위\s*[:：]\s*(.+?)(?:\n|$)'
+    # "N순위 : 카드명" 패턴 매칭 (1순위, 2순위, 3순위)
+    pattern = r'([1-3])순위\s*[:：]\s*(.+?)(?:\n|$)'
     matches = re.findall(pattern, answer)
     
     for rank, card_name in matches:
         card_name = card_name.strip()
-        if card_name:
-            card_ids.append(card_name)
+        if not card_name:
+            continue
+        
+        # alias_map의 key(카드 ID)와 직접 매칭
+        matched_card_id = None
+        for card_id in CARD_ID_TO_ALIASES.keys():
+            if card_id in card_name:
+                matched_card_id = card_id
+                break
+        
+        if matched_card_id and matched_card_id not in seen:
+            card_ids.append(matched_card_id)
+            seen.add(matched_card_id)
     
-    return card_ids
+    return card_ids  # 최대 3개
 
 
 async def get_card_recommendation(
@@ -458,6 +491,8 @@ async def get_card_recommendation(
         
         TOKEN_USAGE_TRACKING = False
         
+        # 토큰 사용량 로그 출력
+        logger.info(f"[GraphRAG] 토큰 사용량 - input: {GLOBAL_TOKEN_USAGE['input_tokens']}, output: {GLOBAL_TOKEN_USAGE['output_tokens']}, total: {GLOBAL_TOKEN_USAGE['total_tokens']}")
         logger.info(f"[GraphRAG] 카드 추천 완료 - 추천 카드: {card_list}")
         
         return {
