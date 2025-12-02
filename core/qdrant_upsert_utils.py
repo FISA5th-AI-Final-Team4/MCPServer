@@ -63,30 +63,12 @@ def build_text(doc: Dict) -> str:
     Returns:
         - str: 임베딩할 텍스트 문자열
     카드 설명 문서 임베딩하기 전 json 데이터를 파싱하여 텍스트 문자열로 변환합니다.
-    norm 필드를 이용하여 추가 정보를 텍스트 형태로 덧붙입니다.
-
-    TODO - 문서 내의 다른 필드에 대하여 텍스트 형태로 추가하여 반환해야함
-        ex) norm.min_montly_fee / tiers / discount_provide_months 등
     """
     # 문서 헤더 정보 구성
     head = f"[{doc['card_id']}] 경로: {doc['tag_major']} > {doc.get('tag_middle')} > {doc.get('tag_minor')} | gran: {('coarse' if '|coarse' in doc['doc_id'] else 'fine')}"
-    
-    # norm 필드 정보 파싱
-    norm_hint = "" # 결과 문자열 초기화
-    n = doc.get("norm") or {} # norm 필드가 없는 경우 빈 딕셔너리로 처리
-
-    # 기본 할인 비율
-    if 'base_discount_rate' in n:
-        v = n['base_discount_rate'].get('value')
-        norm_hint += f" 기본할인 {v} 비율."
-    
-    # 월한도 금액 (KRW)
-    if 'cap' in n:
-        v = n['cap'].get('value')
-        norm_hint += f" 월한도 {v} KRW."
 
     # 텍스트 변환 결과 반환
-    return f"{head}\n요약: {doc['text_dense']}\n핵심키워드: {doc['text_sparse']}\n정규값:{norm_hint}"
+    return f"{head}\n요약: {doc['text_dense']}\n핵심키워드: {doc['text_sparse']}"
 
 def upsert_docs(
     client: QdrantClient,
