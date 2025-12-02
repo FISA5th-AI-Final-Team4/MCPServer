@@ -463,7 +463,7 @@ async def get_card_recommendation(
             augmented_query,
             param=QueryParam(
                 mode=mode,
-                global_max_consider_community=64,
+                global_max_consider_community=128,
             ),
         )
         

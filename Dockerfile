@@ -1,58 +1,73 @@
-# 1단계: NVIDIA CUDA 런타임 (Ubuntu 22.04)
+# ==========================================
+# 1단계: Base Image (공통 환경)
+# ==========================================
 FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04 AS base
 
-ENV DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
-# 2단계: PPA 추가 및 Python 3.12 설치
-# software-properties-common: add-apt-repository 명령어를 위해 필요
-# curl: pip 설치를 위해 필요
-RUN apt-get update && apt-get install -y software-properties-common curl && \
-    add-apt-repository ppa:deadsnakes/ppa -y && \
-    apt-get update && apt-get install -y \
+# 시스템 패키지 및 Python 3.12 설치
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    curl \
+    git \
+    build-essential \
+    && add-apt-repository ppa:deadsnakes/ppa -y \
+    && apt-get update && apt-get install -y \
     python3.12 \
     python3.12-venv \
     python3.12-dev \
-    build-essential \
-    gcc \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# 3단계: pip 수동 설치 (PPA 버전은 pip가 기본 포함 안 됨)
-RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12
+# 파이썬 심볼릭 링크 설정
+RUN ln -sf /usr/bin/python3.12 /usr/bin/python
 
-# 4단계: python, pip 명령어 심볼릭 링크 연결
-# (이제 'python'이라고 치면 'python3.12'가 실행됨)
-RUN ln -sf /usr/bin/python3.12 /usr/bin/python && \
-    ln -sf /usr/bin/pip3 /usr/bin/pip
-
-# --- 빌드 단계 (Builder) ---
+# ==========================================
+# 2단계: Builder (가상 환경에 설치)
+# ==========================================
 FROM base AS builder
 
 WORKDIR /install
 
+# 가상 환경 생성 (/opt/venv)
+RUN python -m venv /opt/venv
+
+# 가상 환경 활성화 (PATH에 추가하면 자동으로 venv 내부의 pip/python 사용)
+ENV PATH="/opt/venv/bin:$PATH"
+
 COPY requirements.txt .
 
-# pip 업그레이드 및 패키지 설치
-# (pip가 3.12용으로 설치되었는지 확인)
+# 패키지 설치
+# [중요] venv 내부로 설치되므로 권한 문제나 경로 꼬임이 없음
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir --prefix=/install/local -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir uvicorn
 
 # 추가 라이브러리 설치
-RUN pip install --no-cache-dir --prefix=/install/local --no-deps \
+RUN pip install --no-cache-dir --no-deps \
     nano-graphrag==0.0.8.2 \
     graspologic==3.4.4 \
     hnswlib==0.8.0
 
-# --- 최종 실행 단계 (Final) ---
+# ==========================================
+# 3단계: Final (최종 실행)
+# ==========================================
 FROM base
 
 WORKDIR /app
 
-# 빌드된 패키지 복사
-COPY --from=builder /install/local /usr/local
+# [핵심] Builder에서 만든 가상 환경 폴더를 통째로 복사
+COPY --from=builder /opt/venv /opt/venv
 
+# [핵심] 가상 환경을 시스템 PATH의 맨 앞에 등록
+# 이제 'python'이나 'uvicorn'을 치면 /opt/venv/bin/ 내부의 것을 사용함
+ENV PATH="/opt/venv/bin:$PATH"
+
+# 소스 코드 복사
 COPY . .
 
 EXPOSE 8011
 
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8011"]
+# venv가 PATH에 잡혀있으므로 명령어가 아주 깔끔해짐
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8011"]

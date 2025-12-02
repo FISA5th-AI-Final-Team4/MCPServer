@@ -19,14 +19,14 @@ class QueryRequest(BaseModel):
 router = APIRouter(prefix="/tools", tags=["MCP Tools"])
 
 # MCP 서버 내부에 자체 Ollama LLM 인스턴스 생성 (RAG용)
-OLLAMA_BASE_URL = settings.OLLAMA_BASE_URL
-OLLAMA_MODEL_NAME = settings.OLLAMA_MODEL_NAME
+# OLLAMA_BASE_URL = settings.OLLAMA_BASE_URL
+# OLLAMA_MODEL_NAME = settings.OLLAMA_MODEL_NAME
 
-mcp_llm = ChatOllama(
-    model=OLLAMA_MODEL_NAME,
-    base_url=OLLAMA_BASE_URL,
-    temperature=0.3
-)
+# mcp_llm = ChatOllama(
+#     model=OLLAMA_MODEL_NAME,
+#     base_url=OLLAMA_BASE_URL,
+#     temperature=0.3
+# )
 
 # 입출력 스키마 정의
 class WeatherRequest(BaseModel):
