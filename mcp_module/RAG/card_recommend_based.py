@@ -400,7 +400,6 @@ def _extract_card_ids_from_answer(answer: str) -> List[str]:
 async def get_card_recommendation(
     query: str,
     session_id: Optional[str] = None,
-    mode: str = "global"
 ) -> Dict[str, Any]:
     """
     GraphRAG 기반 카드 추천 수행
@@ -408,16 +407,19 @@ async def get_card_recommendation(
     Args:
         query: 사용자 질문 (예: "편의점 할인 많은 카드 추천해줘")
         session_id: 세션 ID (대화 히스토리 관리용)
-        mode: 검색 모드 ("global" 또는 "local")
-            - global: 커뮤니티 리포트 기반 전체 조망
-            - local: 청크 기반 세부 정보
     
     Returns:
         Dict containing:
             - answer: 카드 추천 답변
             - card_ids: 추천된 카드명 리스트
+    
+    Note:
+        mode는 항상 "global"로 고정 (커뮤니티 리포트 기반 전체 조망)
     """
     global TOKEN_USAGE_TRACKING, GLOBAL_TOKEN_USAGE
+    
+    # mode 항상 global 고정
+    mode = "global"
     
     logger.info(f"[GraphRAG] 카드 추천 요청: {query[:50]}... (mode={mode})")
     
