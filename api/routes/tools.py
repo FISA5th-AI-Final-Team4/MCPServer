@@ -36,21 +36,18 @@ async def card_recommendation(request: CardRecommendationRequest):
     Knowledge Graph에서 관련 커뮤니티/청크를 검색하여
     사용자 요구사항에 맞는 TOP3 카드를 추천합니다.
     
-    검색 모드:
-    - global: 커뮤니티 리포트 기반 전체 조망 (추천용)
-    - local: 청크 기반 세부 정보 (특정 카드 상세 설명용)
-    
     멀티턴 대화 지원:
     - session_id를 제공하면 이전 질문 맥락을 활용합니다.
+    
+    Note: mode는 항상 global로 고정 (커뮤니티 리포트 기반 전체 조망)
     """
     
     try:
-        print(f"\n[API] 카드 추천 요청: {request.query} (mode={request.mode})")
+        print(f"\n[API] 카드 추천 요청: {request.query}")
         
         result = await get_card_recommendation(
             query=request.query,
-            session_id=request.session_id,
-            mode=request.mode
+            session_id=request.session_id
         )
         
         print(f"[API] 카드 추천 완료 - 추천 카드: {result.get('card_list', [])}\n")

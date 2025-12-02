@@ -3,7 +3,7 @@
 """
 
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal
+from typing import List, Optional
 
 
 class CardRecommendationRequest(BaseModel):
@@ -16,10 +16,6 @@ class CardRecommendationRequest(BaseModel):
     session_id: Optional[str] = Field(
         None, 
         description="세션 ID (멀티턴 대화 지원용)"
-    )
-    mode: Literal["global", "local"] = Field(
-        "global",
-        description="검색 모드 (global: 전체 조망, local: 세부 정보)"
     )
 
 
