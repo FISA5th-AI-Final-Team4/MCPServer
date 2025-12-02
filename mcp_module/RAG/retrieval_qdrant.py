@@ -203,6 +203,7 @@ def hybrid_search(query: str) -> List[Tuple[str, float, Any]]:
         
         # 각 카드에서 상위 8개씩 선택 (섹션 균형 고려)
         results = []
+        card_doc_counts = {}  # 카드별 실제 선택된 문서 수
         for card_id in card_section_docs:
             card_docs = []
             # 섹션별로 최소 1개씩은 포함하도록
@@ -213,11 +214,13 @@ def hybrid_search(query: str) -> List[Tuple[str, float, Any]]:
                     card_docs.extend(section_docs)
             # 상위 8개만 선택
             card_docs = sorted(card_docs, key=lambda x: x[1], reverse=True)[:8]
+            card_doc_counts[card_id] = len(card_docs)
             results.extend(card_docs)
         
         print(f"\n{'='*80}")
         print(f"[비교 쿼리 감지] {len(card_ids)}개 카드 비교: {', '.join(card_ids)}")
-        print(f"[카드별 균형 선택] 총 {len(all_results)}개 → {len(results)}개 문서 (카드당 8개씩)")
+        count_info = ", ".join([f"{k}: {v}개" for k, v in card_doc_counts.items()])
+        print(f"[카드별 선택] 총 {len(all_results)}개 → {len(results)}개 문서 ({count_info})")
         print(f"{'='*80}")
     else:
         # 단일 카드 쿼리: 단순히 상위 15개 선택
@@ -456,8 +459,7 @@ Context에 없는 내용은 절대 지어내지 말고, **오직 Context에서 �
 🎁 **주요 혜택**
 • [혜택1]: [혜택1 관련 수치] ([대상 가맹점/조건 간단히])
 • [혜택2]: [혜택2 관련 수치] ([대상 가맹점/조건 간단히])
-• [혜택3]: [혜택2 관련 수치] ([대상 가맹점/조건 간단히])
-• [혜택4]: [혜택2 관련 수치] ([대상 가맹점/조건 간단히])
+• [혜택3]: [혜택3 관련 수치] ([대상 가맹점/조건 간단히])
 
 ⚠️ [핵심 사용 조건 1줄 제시 - 전월실적/한도 등 중요한 것만]
 
