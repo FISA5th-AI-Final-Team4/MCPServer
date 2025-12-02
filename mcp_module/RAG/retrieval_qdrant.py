@@ -183,9 +183,8 @@ def hybrid_search(query: str) -> List[Tuple[str, float, Any]]:
     
     # 6. 상위 N개 선택 전략
     if is_comparison:
-        # 비교 쿼리: 섹션별로 균형있게 선택 (각 카드에서 동일 섹션 포함 보장)
-        # 섹션별 상위 문서 선택 후 카드별로 분배
-        section_priority = ['FEES', 'BENEFITS', 'USAGE_GUIDE', 'RESTRICTIONS', 'CONDITIONS', 'OTHER']
+        # 비교 쿼리: 각 카드 최소 10개 보장, 동일 섹션만 사용
+        section_priority = ['BENEFITS', 'FEES', 'USAGE_GUIDE', 'RESTRICTIONS', 'CONDITIONS', 'OTHER']
         
         # 카드별, 섹션별로 문서 그룹화
         card_section_docs = {}
@@ -201,19 +200,73 @@ def hybrid_search(query: str) -> List[Tuple[str, float, Any]]:
                 
                 card_section_docs[card_id][section].append((pid, score, pt))
         
-        # 각 카드에서 상위 8개씩 선택 (섹션 균형 고려)
-        results = []
-        card_doc_counts = {}  # 카드별 실제 선택된 문서 수
-        for card_id in card_section_docs:
-            card_docs = []
-            # 섹션별로 최소 1개씩은 포함하도록
+        # 공통 섹션 찾기
+        all_card_ids = list(card_section_docs.keys())
+        if len(all_card_ids) >= 2:
+            common_sections = set(card_section_docs[all_card_ids[0]].keys())
+            for cid in all_card_ids[1:]:
+                common_sections &= set(card_section_docs[cid].keys())
+            common_sections = [s for s in section_priority if s in common_sections]
+        else:
+            common_sections = section_priority
+        
+        # 사용할 섹션 목록 (처음엔 공통 섹션만)
+        sections_to_use = list(common_sections)
+        
+        # 각 카드 최소 10개 보장 - 부족하면 섹션 추가 (양쪽 모두에)
+        min_per_card = 10
+        
+        # 모든 카드가 가진 문서 수 계산 (현재 섹션 기준)
+        def count_docs_for_sections(card_id, sections):
+            count = 0
+            for section in sections:
+                if section in card_section_docs.get(card_id, {}):
+                    count += len(card_section_docs[card_id][section])
+            return count
+        
+        # 가장 문서가 적은 카드가 10개 이상 될 때까지 섹션 추가
+        while True:
+            min_docs = min(count_docs_for_sections(cid, sections_to_use) for cid in all_card_ids)
+            if min_docs >= min_per_card:
+                break
+            
+            # 추가할 섹션 찾기 (양쪽 카드 모두 가진 섹션 중 아직 안 쓴 것)
+            added = False
             for section in section_priority:
+                if section not in sections_to_use:
+                    # 모든 카드가 이 섹션을 가지고 있는지 확인
+                    all_have = all(section in card_section_docs.get(cid, {}) for cid in all_card_ids)
+                    if all_have:
+                        sections_to_use.append(section)
+                        added = True
+                        break
+            
+            if not added:
+                # 더 이상 공통으로 추가할 섹션이 없음
+                break
+        
+        print(f"[사용 섹션] {sections_to_use}")
+        
+        results = []
+        card_doc_counts = {}
+        card_section_detail = {}
+        
+        for card_id in all_card_ids:
+            card_docs = []
+            card_section_detail[card_id] = {}
+            used_pids = set()
+            
+            # 결정된 섹션에서만 문서 가져오기
+            for section in sections_to_use:
                 if section in card_section_docs[card_id]:
                     section_docs = sorted(card_section_docs[card_id][section], 
-                                        key=lambda x: x[1], reverse=True)[:2]
-                    card_docs.extend(section_docs)
-            # 상위 8개만 선택
-            card_docs = sorted(card_docs, key=lambda x: x[1], reverse=True)[:8]
+                                        key=lambda x: x[1], reverse=True)
+                    for doc in section_docs:
+                        if doc[0] not in used_pids:
+                            card_docs.append(doc)
+                            used_pids.add(doc[0])
+                            card_section_detail[card_id][section] = card_section_detail[card_id].get(section, 0) + 1
+            
             card_doc_counts[card_id] = len(card_docs)
             results.extend(card_docs)
         
@@ -221,6 +274,9 @@ def hybrid_search(query: str) -> List[Tuple[str, float, Any]]:
         print(f"[비교 쿼리 감지] {len(card_ids)}개 카드 비교: {', '.join(card_ids)}")
         count_info = ", ".join([f"{k}: {v}개" for k, v in card_doc_counts.items()])
         print(f"[카드별 선택] 총 {len(all_results)}개 → {len(results)}개 문서 ({count_info})")
+        for cid, sections in card_section_detail.items():
+            section_str = ", ".join([f"{s}: {c}" for s, c in sections.items()])
+            print(f"  └ {cid}: {{{section_str}}}")
         print(f"{'='*80}")
     else:
         # 단일 카드 쿼리: 단순히 상위 15개 선택
