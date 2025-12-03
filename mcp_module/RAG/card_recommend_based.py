@@ -482,8 +482,10 @@ async def get_card_recommendation(
             augmented_query = (
             "아래는 사용자가 지금까지 했던 카드 상담 관련 질문 목록이다.\n"
             "이전 질문들의 맥락까지 반영해서 가장 잘 맞는 카드 추천/설명을 진행하라.\n\n"
+                "<<절대 규칙>> **[이전 질문 목록]과 [현재 질문]의 원문을 100% 그대로 전달해서 사용할 것!!!**\n\n"
             f"[이전 질문 목록]\n{history_block}\n\n"
             f"[현재 질문]\n{query}"
+                
             )
         else:
             augmented_query = query
