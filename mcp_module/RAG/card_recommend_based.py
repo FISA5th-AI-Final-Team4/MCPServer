@@ -445,10 +445,10 @@ async def get_card_recommendation(
             history_block = "\n".join(history_snippets)
             
             augmented_query = (
-                "아래는 사용자가 지금까지 했던 카드 상담 관련 질문 목록이다.\n"
-                "이전 질문들의 맥락을 참고하되, 맨 마지막에 주어진 '현재 질문'에 가장 잘 맞는 카드 추천/설명을 우선해서 답변하라.\n\n"
-                f"[이전 질문 목록]\n{history_block}\n\n"
-                f"[현재 질문]\n{query}"
+            "아래는 사용자가 지금까지 했던 카드 상담 관련 질문 목록이다.\n"
+            "이전 질문들의 맥락까지 반영해서 가장 잘 맞는 카드 추천/설명을 진행하라.\n\n"
+            f"[이전 질문 목록]\n{history_block}\n\n"
+            f"[현재 질문]\n{query}"
             )
         else:
             augmented_query = query
