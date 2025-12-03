@@ -368,27 +368,62 @@ def _extract_card_ids_from_answer(answer: str) -> List[str]:
     """
     GraphRAG 답변에서 TOP3 추천 카드명(카드 ID) 추출
     
-    "N순위 : 카드명" 형식에서 카드명을 추출하고,
-    alias_map.json의 key(카드 ID)와 직접 매칭합니다.
+    "### 1️⃣ 카드명" 또는 "| 1️⃣ | 카드명 |" 형식에서 카드명을 추출하고,
+    alias_map.json의 key(카드 ID) 및 alias 값들과 매칭합니다.
     """
     card_ids = []
     seen = set()  # 중복 방지
     
-    # "N순위 : 카드명" 패턴 매칭 (1순위, 2순위, 3순위)
-    pattern = r'([1-3])순위\s*[:：]\s*(.+?)(?:\n|$)'
-    matches = re.findall(pattern, answer)
+    # 패턴 1: "### 1️⃣ 카드명" 형식 (헤더)
+    header_pattern = r'###\s*[1-3]️⃣\s*(.+?)(?:\n|$)'
+    header_matches = re.findall(header_pattern, answer)
     
-    for rank, card_name in matches:
+    # 패턴 2: "| 1️⃣ | 카드명 |" 형식 (테이블)
+    table_pattern = r'\|\s*[1-3]️⃣\s*\|\s*(.+?)\s*\|'
+    table_matches = re.findall(table_pattern, answer)
+    
+    # 패턴 3: 기존 "N순위 : 카드명" 형식 (fallback)
+    legacy_pattern = r'([1-3])순위\s*[:：]\s*(.+?)(?:\n|$)'
+    legacy_matches = re.findall(legacy_pattern, answer)
+    
+    # 헤더 패턴 우선 사용
+    all_card_names = []
+    if header_matches:
+        all_card_names = header_matches
+    elif table_matches:
+        all_card_names = table_matches
+    elif legacy_matches:
+        all_card_names = [m[1] for m in legacy_matches]
+    
+    for card_name in all_card_names:
         card_name = card_name.strip()
         if not card_name:
             continue
         
-        # alias_map의 key(카드 ID)와 직접 매칭
+        # 특수문자 제거하고 정규화 (띄어쓰기, 대괄호 등)
+        card_name_normalized = re.sub(r'[\[\]()（）\s]+', '', card_name.lower())
+        
         matched_card_id = None
+        best_match_len = 0
+        
+        # 1차: card_id(키)와 매칭 - 가장 긴 매칭 선택
         for card_id in CARD_ID_TO_ALIASES.keys():
-            if card_id in card_name:
-                matched_card_id = card_id
-                break
+            card_id_normalized = re.sub(r'[\[\]()（）\s]+', '', card_id.lower())
+            if card_id_normalized in card_name_normalized or card_name_normalized in card_id_normalized:
+                # 더 긴 매칭이 더 정확함
+                if len(card_id_normalized) > best_match_len:
+                    matched_card_id = card_id
+                    best_match_len = len(card_id_normalized)
+        
+        # 2차: alias 값들과 매칭 - 가장 긴 매칭 선택
+        if not matched_card_id:
+            for card_id, aliases in CARD_ID_TO_ALIASES.items():
+                for alias in aliases:
+                    alias_normalized = re.sub(r'[\[\]()（）\s]+', '', alias.lower())
+                    if alias_normalized in card_name_normalized or card_name_normalized in alias_normalized:
+                        if len(alias_normalized) > best_match_len:
+                            matched_card_id = card_id
+                            best_match_len = len(alias_normalized)
         
         if matched_card_id and matched_card_id not in seen:
             card_ids.append(matched_card_id)
