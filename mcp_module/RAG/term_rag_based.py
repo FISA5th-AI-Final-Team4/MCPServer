@@ -85,22 +85,26 @@ def get_db_connection():
             conn.close()
 
 
-def search_term(term_query: str) -> str:
+def search_term(term_query: str, top_k: int = 3) -> dict:
     """
     금융 용어 검색 (pg_bigm 유사도 기반)
     
     Args:
         term_query: 사용자 질문 (예: "연회비가 뭐야?", "연회삐")
+        top_k: 반환할 용어 개수 (기본값: 3)
         
     Returns:
-        str: 용어 정의와 관련 정보
+        dict: {
+            'answer': str - 최상위 용어 정의,
+            'relatedQuestions': List[str] - 관련 용어 목록 (최대 2개)
+        }
         
     Examples:
         >>> search_term("연회비가 뭐야?")
-        "연회비 (Annual Fee)\n\n[카드 기본]\n\n[정의]\n..."
-        
-        >>> search_term("연회삐")  # 오타 허용
-        "연회비 (Annual Fee) ..."
+        {
+            'answer': "연회비 (Annual Fee)\n\n[카드 기본]\n\n[정의]\n...",
+            'relatedQuestions': ["실적", "한도"]
+        }
     """
     print(f"[TERM] 검색: '{term_query}'")
     
@@ -108,19 +112,19 @@ def search_term(term_query: str) -> str:
     keyword = extract_keyword(term_query)
     print(f"[TERM] 키워드: '{keyword}'")
     
-    # SQL 쿼리 (pg_bigm 유사도 검색)
+    # SQL 쿼리 (pg_bigm 유사도 검색) - 상위 3개 반환
     query = """
         SELECT 
             t.term_id, t.term, t.definition, t.english,
-            t.related_terms, c.category_name,
+            c.category_name,
             bigm_similarity(t.term, '{keyword}') AS similarity_score
         FROM terms t
         JOIN term_categories c ON t.category_id = c.category_id
         WHERE LENGTH(t.term) > 1
           AND bigm_similarity(t.term, '{keyword}') > 0.1
         ORDER BY similarity_score DESC
-        LIMIT 1;
-    """.format(keyword=keyword.replace("'", "''"))
+        LIMIT {top_k};
+    """.format(keyword=keyword.replace("'", "''"), top_k=top_k)
     
     try:
         with get_db_connection() as conn:
@@ -132,51 +136,53 @@ def search_term(term_query: str) -> str:
                     conn.commit()
                     print("[TERM] pg_bigm 확장 설치 완료")
                 
-                # 유사도 검색
+                # 유사도 검색 (상위 3개)
                 cursor.execute(query)
-                result = cursor.fetchone()
+                results = cursor.fetchall()
                 
-                if not result:
-                    return f"'{keyword}'에 대한 용어를 찾을 수 없습니다."
+                if not results:
+                    return {
+                        "answer": f"'{keyword}'에 대한 용어를 찾을 수 없습니다.",
+                        "relatedQuestions": []
+                    }
                 
                 # Tuple → Dict 변환
                 columns = ['term_id', 'term', 'definition', 'english', 
-                          'related_terms', 'category_name', 'similarity_score']
-                term_info = dict(zip(columns, result))
-                similarity = float(term_info['similarity_score'])
-                print(f"[TERM] 매칭: '{term_info['term']}' (유사도: {similarity:.2f})")
+                          'category_name', 'similarity_score']
+                term_list = [dict(zip(columns, row)) for row in results]
                 
-                # 답변 구성
-                answer = term_info['term']
-                if term_info['english']:
-                    answer += f" ({term_info['english']})"
-                answer += f"\n\n[{term_info['category_name']}]\n\n"
-                answer += f"[정의]\n{term_info['definition']}\n"
+                # 최상위 용어 (1순위)
+                best = term_list[0]
+                similarity = float(best['similarity_score'])
+                print(f"[TERM] 매칭: '{best['term']}' (유사도: {similarity:.2f})")
                 
-                # # 관련 용어
-                # if term_info['related_terms']:
-                #     placeholders = ','.join(['%s'] * len(term_info['related_terms']))
-                #     cursor.execute(
-                #         f"SELECT term, definition FROM terms WHERE term IN ({placeholders}) LIMIT 5;",
-                #         tuple(term_info['related_terms'])
-                #     )
-                #     related = cursor.fetchall()
-                    
-                #     if related:
-                #         answer += "\n\n[관련 용어]\n"
-                #         for term, definition in related:
-                #             answer += f"- {term}: {definition[:50]}...\n"
+                # 답변 구성 (1순위 용어)
+                answer = best['term']
+                if best['english']:
+                    answer += f" ({best['english']})"
+                answer += f"\n\n[{best['category_name']}]\n\n"
+                answer += f"[정의]\n{best['definition']}\n"
                 
-                # views 카운트 증가
+                # 관련 용어 목록 (2, 3순위 용어명)
+                related_questions = [term['term'] for term in term_list[1:]]
+                
+                # views 카운트 증가 (1순위만)
                 cursor.execute(
                     "UPDATE terms SET views = views + 1 WHERE term_id = %s;",
-                    (term_info['term_id'],)
+                    (best['term_id'],)
                 )
                 conn.commit()
-                print(f"[TERM] views 증가: term_id={term_info['term_id']}")
+                print(f"[TERM] views 증가: term_id={best['term_id']}")
+                print(f"[TERM] 관련 용어: {related_questions}")
                 
-                return answer
+                return {
+                    "answer": answer,
+                    "relatedQuestions": related_questions
+                }
                 
     except Exception as e:
         print(f"[TERM] 오류: {e}")
-        return f"검색 중 오류가 발생했습니다: {str(e)}"
+        return {
+            "answer": f"검색 중 오류가 발생했습니다: {str(e)}",
+            "relatedQuestions": []
+        }

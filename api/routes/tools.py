@@ -151,16 +151,22 @@ async def term_query(request: TermRequest):
     
     LLM 서버에서 query_term_database Tool을 통해 호출되며,
     PostgreSQL에서 용어를 검색하여 정의와 관련 용어를 제공합니다.
+    
+    Returns:
+        dict: {
+            'answer': str - 최상위 용어 정의,
+            'relatedQuestions': List[str] - 유사 용어 목록 (최대 2개)
+        }
     """
     
     try:
         print(f"\n[API] 용어 검색 요청: {request.query}")
         
-        answer = search_term(term_query=request.query)
+        result = search_term(term_query=request.query, top_k=request.top_k)
         
-        print(f"[API] 용어 검색 완료\n")
+        print(f"[API] 용어 검색 완료 (관련 용어: {result.get('relatedQuestions', [])})\n")
         
-        return {"answer": answer}
+        return result
         
     except Exception as e:
         print(f"[API 오류] {str(e)}")
