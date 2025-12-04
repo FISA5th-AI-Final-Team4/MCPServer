@@ -1,10 +1,11 @@
 from fastapi import FastAPI
 from fastapi_mcp import FastApiMCP
 
+from core.setup import lifespan
 from api.router import api_router
 
 # 기존 FastAPI 애플리케이션 생성
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 app.include_router(api_router)
 
 # MCP 서버 생성 (FastAPI 앱 기반 래핑)
