@@ -1,23 +1,19 @@
 from fastapi import APIRouter, HTTPException
 
-from mcp_module.RAG.card_desc_rag_based import card_recommendation_rag_pipeline
-from mcp_module.RAG.faq_rag_based import search_faq
-from mcp_module.RAG.term_rag_based import search_term
-from schemas.card_recommendation import (
-    CardRecommendationRequest,
-    CardRecommendationResponse,
-    ContextDocument
-)
-from schemas.qna import (
-    FAQRequest,
-    FAQResponse,
-    FAQResult,
-    TermRequest,
-    TermResponse,
-    TermInfo,
-    RelatedTerm
-)
+from langchain_core.runnables import RunnableConfig
 
+from mcp_module.RAG.faq_rag_based import search_faq
+from mcp_module.RAG.retrieval_qdrant import get_card_description
+from mcp_module.RAG.term_rag_based import search_term
+from mcp_module.RAG.mydata_based import tabular_recommendation
+from mcp_module.RAG.card_recommend_based import get_card_recommendation
+from schemas.card_recommendation import CardRecommendationRequest, CardRecommendationResponse
+from schemas.card_description import CardDescriptionRequest
+from schemas.qna import FAQRequest, TermRequest
+from schemas.tabular_recommand import (
+    ConsumptionRecommandRequest,
+    ConsumptionRecommandResponse
+)
 
 router = APIRouter(prefix="/tools", tags=["mcp-tools"])
 
@@ -28,54 +24,42 @@ router = APIRouter(prefix="/tools", tags=["mcp-tools"])
 
 @router.post(
     "/card-recommendation",
-    response_model=CardRecommendationResponse,
-    summary="카드 추천 RAG 파이프라인",
-    description="사용자 질문을 받아 RAG 파이프라인을 실행하여 카드를 추천합니다.",
-    operation_id="get_card_recommendation"
+    summary="GraphRAG 기반 카드 추천",
+    description="사용자 질문을 받아 GraphRAG 파이프라인을 실행하여 TOP3 카드를 추천합니다.",
+    operation_id="get_card_recommendation",
+    response_model=CardRecommendationResponse
 )
-async def card_recommendation(request: CardRecommendationRequest) -> CardRecommendationResponse:
+async def card_recommendation(request: CardRecommendationRequest):
     """
-    카드 추천 RAG 파이프라인 실행
+    GraphRAG 기반 카드 추천 파이프라인 실행
     
-    LLM 서버에서 쿼리 라우팅을 통해 호출되며,
-    벡터 DB 검색 → 컨텍스트 선정 → 최종 답변 생성을 수행합니다.
+    Knowledge Graph에서 관련 커뮤니티/청크를 검색하여
+    사용자 요구사항에 맞는 TOP3 카드를 추천합니다.
+    
+    멀티턴 대화 지원:
+    - session_id를 제공하면 이전 질문 맥락을 활용합니다.
+    
+    Note: mode는 항상 global로 고정 (커뮤니티 리포트 기반 전체 조망)
     """
     
     try:
         print(f"\n[API] 카드 추천 요청: {request.query}")
         
-        # RAG 파이프라인 실행
-        result = card_recommendation_rag_pipeline(
+        result = await get_card_recommendation(
             query=request.query,
-            retrieve_k=request.retrieve_k,
-            final_k=request.final_k
+            session_id=request.session_id
         )
         
-        # 응답 변환
-        response = CardRecommendationResponse(
-            query=result["query"],
-            retrieved_count=result["retrieved_count"],
-            final_count=result["final_count"],
-            answer=result["answer"],
-            context_docs=[
-                ContextDocument(
-                    content=doc["content"],
-                    metadata=doc["metadata"]
-                )
-                for doc in result["context_docs"]
-            ]
-        )
+        print(f"[API] 카드 추천 완료 - 추천 카드: {result.get('card_list', [])}\n")
         
-        print(f"[API] 카드 추천 완료\n")
-        
-        return response
+        return result
         
     except FileNotFoundError as e:
+        print(f"[API 오류] GraphRAG 인덱스 없음: {str(e)}")
         raise HTTPException(
-            status_code=404,
-            detail=f"벡터 DB를 찾을 수 없습니다: {str(e)}"
+            status_code=503,
+            detail=f"GraphRAG 인덱스가 준비되지 않았습니다: {str(e)}"
         )
-        
     except Exception as e:
         print(f"[API 오류] {str(e)}")
         raise HTTPException(
@@ -85,13 +69,49 @@ async def card_recommendation(request: CardRecommendationRequest) -> CardRecomme
 
 
 @router.post(
+    "/card-description",
+    summary="특정 카드 설명",
+    description="카드명을 포함한 질문을 받아 해당 카드의 혜택, 연회비, 조건 등을 설명합니다.",
+    operation_id="get_card_description"
+)
+async def card_description(request: CardDescriptionRequest):
+    """
+    특정 카드 설명 제공
+    
+    사용자가 특정 카드에 대해 질문하면 해당 카드의 정보만 검색하여
+    혜택, 연회비, 사용 조건 등을 상세히 설명합니다.
+    
+    지원하는 질문 유형:
+    - 간단한 정보: "우리카드 7CORE 연회비 얼마야?"
+    - 요약 요청: "카드의정석 every point 요약해줘"
+    - 비교 요청: "7CORE와 every point 비교해줘"
+    - 상세 설명: "우리카드 7CORE 혜택 자세히 알려줘"
+    """
+    
+    try:
+        print(f"\n[API] 카드 설명 요청: {request.query}")
+        
+        result = get_card_description(query=request.query)
+        
+        print(f"[API] 카드 설명 완료 (카드: {result.get('card_ids')})\n")
+        
+        return result
+        
+    except Exception as e:
+        print(f"[API 오류] {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"카드 설명 실행 중 오류: {str(e)}"
+        )
+
+
+@router.post(
     "/faq-query",
-    response_model=FAQResponse,
     summary="FAQ 검색",
     description="사용자 질문에 대한 FAQ를 검색하여 답변을 제공합니다.",
     operation_id="query_faq_database"
 )
-async def faq_query(request: FAQRequest) -> FAQResponse:
+async def faq_query(request: FAQRequest):
     """
     FAQ 검색 및 답변 생성
     
@@ -102,39 +122,14 @@ async def faq_query(request: FAQRequest) -> FAQResponse:
     try:
         print(f"\n[API] FAQ 검색 요청: {request.query}")
         
-        result = search_faq(
+        answer = search_faq(
             question=request.query,
             top_k=request.top_k
         )
         
-        faq_results = []
-        if result["success"] and result["results"]:
-            faq_results = [
-                FAQResult(
-                    faq_id=faq["faq_id"],
-                    question=faq["question"],
-                    answer=faq["answer"],
-                    keywords=faq["keywords"],
-                    category_name=faq["category_name"],
-                    similarity=float(faq["similarity"]),
-                    views=faq["views"],
-                    priority=faq["priority"]
-                )
-                for faq in result["results"]
-            ]
+        print(f"[API] FAQ 검색 완료\n")
         
-        response = FAQResponse(
-            success=result["success"],
-            query=result["query"],
-            answer=result["answer"],
-            results=faq_results,
-            total_found=result["total_found"],
-            best_similarity=result.get("best_similarity")
-        )
-        
-        print(f"[API] FAQ 검색 완료: {result['total_found']}개 발견\n")
-        
-        return response
+        return answer
         
     except Exception as e:
         print(f"[API 오류] {str(e)}")
@@ -146,63 +141,71 @@ async def faq_query(request: FAQRequest) -> FAQResponse:
 
 @router.post(
     "/term-query",
-    response_model=TermResponse,
     summary="금융 용어 검색",
     description="금융 용어를 검색하여 정의와 관련 정보를 제공합니다.",
     operation_id="query_term_database"
 )
-async def term_query(request: TermRequest) -> TermResponse:
+async def term_query(request: TermRequest):
     """
     금융 용어 검색 및 설명 생성
     
     LLM 서버에서 query_term_database Tool을 통해 호출되며,
     PostgreSQL에서 용어를 검색하여 정의와 관련 용어를 제공합니다.
+    
+    Returns:
+        dict: {
+            'answer': str - 최상위 용어 정의,
+            'relatedQuestions': List[str] - 유사 용어 목록 (최대 2개)
+        }
     """
     
     try:
         print(f"\n[API] 용어 검색 요청: {request.query}")
         
-        result = search_term(term_query=request.query)
+        result = search_term(term_query=request.query, top_k=request.top_k)
         
-        term_info = None
-        related_terms = []
+        print(f"[API] 용어 검색 완료 (관련 용어: {result.get('relatedQuestions', [])})\n")
         
-        if result["success"] and result["term_info"]:
-            term_data = result["term_info"]
-            term_info = TermInfo(
-                term_id=term_data["term_id"],
-                term=term_data["term"],
-                definition=term_data["definition"],
-                english=term_data.get("english"),
-                related_terms=term_data.get("related_terms", []),
-                examples=term_data.get("examples"),
-                category_name=term_data["category_name"],
-                similarity=float(term_data.get("sim", term_data.get("similarity", 0)))
-            )
-            
-            related_terms = [
-                RelatedTerm(term=rt["term"], definition=rt["definition"])
-                for rt in result.get("related_terms", [])
-            ]
-        
-        response = TermResponse(
-            success=result["success"],
-            query=result["query"],
-            answer=result["answer"],
-            term_info=term_info,
-            related_terms=related_terms,
-            similarity=result.get("similarity")
-        )
-        
-        print(f"[API] 용어 검색 완료\n")
-        
-        return response
+        return result
         
     except Exception as e:
         print(f"[API 오류] {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"용어 검색 중 오류: {str(e)}"
+        )
+
+
+@router.post(
+    "/consumption_recommend",
+    summary="소비패턴 기반 카드 추천",
+    description="사용자의 소비패턴을 분석하여 맞춤형 카드를 추천합니다.",
+    operation_id="consumption_recommend"
+)
+async def consumption_recommend(req: ConsumptionRecommandRequest):
+    """
+    소비패턴 기반 카드 추천
+    
+    사용자의 소비 데이터를 분석하여 최적의 카드를 추천합니다.
+    """
+    
+    try:
+        print(f"\n[API] 소비패턴 기반 카드 추천 요청: 세션ID={req.session_id}")
+        answer, login_required, card_list = await tabular_recommendation(
+            session_id=req.session_id
+        )
+
+        return {
+            "answer": answer,
+            "login_required": login_required,
+            "card_list": card_list
+        }
+
+    except Exception as e:
+        print(f"[API 오류] {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"소비패턴 기반 카드 추천 중 오류: {str(e)}"
         )
 
 
@@ -217,8 +220,10 @@ async def health_check():
         "status": "healthy",
         "service": "MCP Tools Server",
         "available_tools": [
-            "card-recommendation",
+            "card-recommendation (GraphRAG)",
+            "card-description",
             "faq-query",
-            "term-query"
+            "term-query",
+            "consumption-recommendation"
         ]
     }

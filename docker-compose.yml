@@ -1,54 +1,123 @@
-# 실행 명령어: sudo docker compose --env-file .env up -d --build
-# 중지 명령어: sudo docker compose down
-# 로그 확인: sudo docker compose logs -f postgres
-
-version: '3.8'
-
 services:
-  # PostgreSQL 데이터베이스
-  postgres:
-    image: postgres:16-alpine
-    container_name: mcp-postgres
+  # 1. Ollama 서비스 (LLM 백엔드)
+  ollama-mcp:
+    image: ollama/ollama:latest
+    container_name: ollama-mcp
     restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
     ports:
-      - "5432:5432"
+      - "11111:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      # NVIDIA GPU 사용 시 (AMD 사용자라면 이 부분 조정 필요)
+      - NVIDIA_VISIBLE_DEVICES=all
     volumes:
-      # 초기화 스크립트 마운트
-      - ./data/qna/init_postgres.sql:/docker-entrypoint-initdb.d/init_postgres.sql
-      # 데이터 영속성 (선택 사항)
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - mcp-network
+      - ollama_models:/root/.ollama
+    
+    # GPU 모드 강제 설정 (기존 설정 유지)
+    entrypoint: ["/bin/sh"]
+    command:
+      - "-lc"
+      - |
+        export OLLAMA_USE_GPU="auto"
+        echo "[ollama] Forcing GPU mode (OLLAMA_USE_GPU=auto)"
+        exec /bin/ollama serve
+    
+    # 리소스 설정 (NVIDIA)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mcp_user -d card_qna_db"]
+      test: ["CMD-SHELL", "OLLAMA_HOST=http://127.0.0.1:11434 ollama list >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 20
 
-  # pgAdmin (PostgreSQL 관리 도구, 선택 사항)
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: mcp-pgadmin
-    restart: unless-stopped
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@example.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-    ports:
-      - "5050:80"
+  # 2. 모델 초기화 서비스 (모델 자동 다운로드)
+  model_init-mcp:
+    image: ollama/ollama:latest
+    container_name: model_init-mcp
+    restart: "no"
     depends_on:
-      - postgres
-    networks:
-      - mcp-network
+      ollama-mcp:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama-mcp:11434 # 내부 도커 네트워크 사용
+      - OLLAMA_MODEL_NAME=${OLLAMA_MODEL_NAME}
+      - NVIDIA_VISIBLE_DEVICES=all
+    
+    # 모델 Pull 명령
+    entrypoint: ["/bin/sh"]
+    command:
+      - "-lc"
+      - |
+        echo "[model_init] Connecting to ollama..."
+        ollama pull ${OLLAMA_MODEL_NAME} || true
+        echo "[model_init] Model pulled successfully."
+    
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
+  # 3. MCP 서버 (메인 어플리케이션)
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mcp-server:gpu-edition
+    container_name: mcp_container
+    restart: unless-stopped
+    ports:
+      - "8011:8011"
+    
+    # [핵심 변경 사항] Ollama와 모델 준비가 끝난 후 실행
+    depends_on:
+      ollama-mcp:
+        condition: service_healthy
+      model_init-mcp:
+        condition: service_completed_successfully
+
+    environment:
+      # 내부 통신을 위해 localhost 대신 서비스명 'ollama' 사용
+      - OLLAMA_BASE_URL=http://ollama-mcp:11434
+      - OLLAMA_HOST=http://ollama-mcp:11434
+      
+      # 기존 환경 변수
+      - HF_HOME=/root/.cache/huggingface
+      - WEATHER_API_BASE_URL=${WEATHER_API_BASE_URL}
+      - WEATHER_API_KEY=${WEATHER_API_KEY}
+      - OLLAMA_MODEL_NAME=${OLLAMA_MODEL_NAME}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - QDRANT_HOST=${QDRANT_HOST}
+      - QDRANT_PORT=${QDRANT_PORT}
+      - BACKEND_SERVER_URL=${BACKEND_SERVER_URL}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+
+    # GPU 리소스 할당
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+
+# 볼륨 정의
 volumes:
-  postgres_data:
-    driver: local
-
-networks:
-  mcp-network:
-    driver: bridge
+  hf_cache:
+  ollama_models:

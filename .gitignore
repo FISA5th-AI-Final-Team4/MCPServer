@@ -3,3 +3,5 @@
 .venv
 .env
 data
+Cluster
+Card_recommend

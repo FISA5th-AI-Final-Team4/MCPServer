@@ -1,6 +1,6 @@
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
+from torch.cuda import is_available as cuda_is_available
 
 class Settings(BaseSettings):
     # 시스템 환경변수 적용
@@ -20,7 +20,18 @@ class Settings(BaseSettings):
     POSTGRES_DB: str
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
+
+    # Qdrant 서버 설정 (환경변수로 관리)
+    QDRANT_HOST: str
+    QDRANT_PORT: int
+
+    # GPU 사용 가능 여부
+    DEVICE: str = "cuda" if cuda_is_available() else "cpu"
     
+    # 백엔드 서버 주소
+    BACKEND_SERVER_URL: str
+    OPENAI_API_KEY: str
+
     @property
     def POSTGRES_PASSWORD(self) -> str:
         """POSTGRES_PASSWORD를 PostgreSQL 비밀번호로 사용"""
