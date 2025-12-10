@@ -16,6 +16,39 @@
 |  query_term_database      | 금융 용어 QnA 유사도 검색 툴           | `/mcp/term-query`            |
 | consumption_recommend     | 개인 소비 데이터 기반 카드 추천 툴      | `/mcp/consumption_recommend` |
 
+## 🗂️ MCP 툴 내부 로직 다이어그램
+
+<details>
+<summary><strong>get_card_description</strong></summary>
+
+<img width="1200" alt="image" src="https://github.com/user-attachments/assets/8b80f269-f236-45d4-9426-9ccf15284b13" />
+
+</details> 
+
+<details>
+  <summary><strong>query_faq_database</strong></summary>
+
+  <img width="923" alt="image" src="https://github.com/user-attachments/assets/0594469c-317b-4795-9e91-93827179c1ed" />
+  
+</details>
+
+
+<details>
+  <summary><strong>query_term_database</strong></summary>
+
+  <img width="582" alt="image" src="https://github.com/user-attachments/assets/38be2643-b792-4b60-a763-580641003542" />
+</details>
+
+
+
+<details>
+  <summary><strong>consumption_recommend</strong></summary>
+
+  <img width="2209" alt="image" src="https://github.com/user-attachments/assets/86de9a10-5f43-4039-a102-45167c4042d7" />
+</details>
+
+
+
 
 ## ⚒️ 기술 스택
 - FastAPI, pydantic, MCP, PostgreSQL, Qdrant
